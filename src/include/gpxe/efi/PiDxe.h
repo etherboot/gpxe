@@ -16,9 +16,10 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #ifndef __PI_DXE_H__
 #define __PI_DXE_H__
 
+FILE_LICENCE ( BSD3 );
+
 #include <gpxe/efi/Uefi/UefiBaseType.h>
 #include <gpxe/efi/Uefi/UefiSpec.h>
-
 #include <gpxe/efi/Pi/PiDxeCis.h>
 
 #endif

@@ -27,6 +27,8 @@ sub try_import_file {
       mkpath ( $outdir );
       open my $outfh, ">$outfile" or die "Could not open $outfile: $!\n";
       my @dependencies = ();
+      my $licence;
+      my $guard;
       while ( <$infh> ) {
 	# Strip CR and trailing whitespace
 	s/\r//g;
@@ -36,10 +38,25 @@ sub try_import_file {
 	if ( s/^\#include\s+[<\"](\S+)[>\"]/\#include <gpxe\/efi\/$1>/ ) {
 	  push @dependencies, $1;
 	}
+	# Check for BSD licence statement
+	if ( /^\s*THE PROGRAM IS DISTRIBUTED UNDER THE BSD LICENSE/ ) {
+	  die "Licence detected after header guard\n" if $guard;
+	  $licence = "BSD3";
+	}
+	# Write out line
 	print $outfh "$_\n";
+	# Apply FILE_LICENCE() immediately after include guard
+	if ( /^\#define\s+_?_\S+_H_?_$/ ) {
+	  die "Duplicate header guard detected in $infile\n" if $guard;
+	  $guard = 1;
+	  print $outfh "\nFILE_LICENCE ( $licence );\n" if $licence;
+	}
       }
       close $outfh;
       close $infh;
+      # Warn if no licence was detected
+      warn "Cannot detect licence in $infile\n" unless $licence;
+      warn "Cannot detect header guard in $infile\n" unless $guard;
       # Recurse to handle any included files that we don't already have
       foreach my $dependency ( @dependencies ) {
 	if ( ! -e catfile ( $gpxedir, $dependency ) ) {

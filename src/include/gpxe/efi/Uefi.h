@@ -20,6 +20,8 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #ifndef __PI_UEFI_H__
 #define __PI_UEFI_H__
 
+FILE_LICENCE ( BSD3 );
+
 #include <gpxe/efi/Uefi/UefiBaseType.h>
 #include <gpxe/efi/Uefi/UefiSpec.h>
 

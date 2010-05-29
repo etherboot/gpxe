@@ -19,8 +19,9 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #ifndef __UEFI_SPEC_H__
 #define __UEFI_SPEC_H__
 
-#include <gpxe/efi/Uefi/UefiMultiPhase.h>
+FILE_LICENCE ( BSD3 );
 
+#include <gpxe/efi/Uefi/UefiMultiPhase.h>
 #include <gpxe/efi/Protocol/DevicePath.h>
 #include <gpxe/efi/Protocol/SimpleTextIn.h>
 #include <gpxe/efi/Protocol/SimpleTextOut.h>

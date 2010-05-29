@@ -18,6 +18,8 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #ifndef __PI_MULTIPHASE_H__
 #define __PI_MULTIPHASE_H__
 
+FILE_LICENCE ( BSD3 );
+
 #include <gpxe/efi/Pi/PiFirmwareVolume.h>
 #include <gpxe/efi/Pi/PiFirmwareFile.h>
 #include <gpxe/efi/Pi/PiBootMode.h>
