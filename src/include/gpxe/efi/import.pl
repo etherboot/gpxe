@@ -1,27 +1,58 @@
 #!/usr/bin/perl -w
 
+=head1 NAME
+
+import.pl
+
+=head1 SYNOPSIS
+
+import.pl [options] /path/to/edk2/edk2
+
+Options:
+
+    -h,--help		Display brief help message
+    -v,--verbose	Increase verbosity
+    -q,--quiet		Decrease verbosity
+
+=cut
+
 use File::Spec::Functions qw ( :ALL );
 use File::Find;
 use File::Path;
+use Getopt::Long;
+use Pod::Usage;
 use FindBin;
 use strict;
 use warnings;
 
+my $verbosity = 0;
+
 sub try_import_file {
   my $gpxedir = shift;
+  my $edktop = shift;
   my $edkdirs = shift;
   my $filename = shift;
 
   # Skip everything except headers
   return unless $filename =~ /\.h$/;
-  print "$filename...";
 
+  # Skip files that are gPXE native headers
   my $outfile = catfile ( $gpxedir, $filename );
+  if ( -s $outfile ) {
+    open my $outfh, "<$outfile" or die "Could not open $outfile: $!\n";
+    my $line = <$outfh>;
+    close $outfh;
+    chomp $line;
+    return if $line =~ /^\#ifndef\s+_GPXE_\S+_H$/;
+  }
+
+  # Search for importable header
   foreach my $edkdir ( @$edkdirs ) {
-    my $infile = catfile ( $edkdir, $filename );
+    my $infile = catfile ( $edktop, $edkdir, $filename );
     if ( -e $infile ) {
       # We have found a matching source file - import it
-      print "$infile\n";
+      print "$filename <- ".catfile ( $edkdir, $filename )."\n"
+	  if $verbosity >= 1;
       open my $infh, "<$infile" or die "Could not open $infile: $!\n";
       ( undef, my $outdir, undef ) = splitpath ( $outfile );
       mkpath ( $outdir );
@@ -60,33 +91,44 @@ sub try_import_file {
       # Recurse to handle any included files that we don't already have
       foreach my $dependency ( @dependencies ) {
 	if ( ! -e catfile ( $gpxedir, $dependency ) ) {
-	  print "...following dependency on $dependency\n";
-	  try_import_file ( $gpxedir, $edkdirs, $dependency );
+	  print "...following dependency on $dependency\n" if $verbosity >= 1;
+	  try_import_file ( $gpxedir, $edktop, $edkdirs, $dependency );
 	}
       }
       return;
     }
   }
-  print "no equivalent found\n";
+  die "$filename has no equivalent in $edktop\n";
 }
 
-# Identify edk import directories
-die "Syntax $0 /path/to/edk2/edk2\n" unless @ARGV == 1;
+# Parse command-line options
+Getopt::Long::Configure ( 'bundling', 'auto_abbrev' );
+GetOptions (
+  'verbose|v+' => sub { $verbosity++; },
+  'quiet|q+' => sub { $verbosity--; },
+  'help|h' => sub { pod2usage ( 1 ); },
+) or die "Could not parse command-line options\n";
+pod2usage ( 1 ) unless @ARGV == 1;
 my $edktop = shift;
-die "Directory \"$edktop\" does not appear to contain the EFI EDK2\n"
-    unless -e catfile ( $edktop, "MdePkg" );
-my $edkdirs = [ catfile ( $edktop, "MdePkg/Include" ),
-		catfile ( $edktop, "IntelFrameworkPkg/Include" ) ];
+
+# Identify edk import directories
+my $edkdirs = [ "MdePkg/Include", "IntelFrameworkPkg/Include" ];
+foreach my $edkdir ( @$edkdirs ) {
+  die "Directory \"$edktop\" does not appear to contain the EFI EDK2 "
+      ."(missing \"$edkdir\")\n" unless -d catdir ( $edktop, $edkdir );
+}
 
 # Identify gPXE EFI includes directory
 my $gpxedir = $FindBin::Bin;
 die "Directory \"$gpxedir\" does not appear to contain the gPXE EFI includes\n"
     unless -e catfile ( $gpxedir, "../../../include/gpxe/efi" );
 
-print "Importing EFI headers into $gpxedir\nfrom ";
-print join ( "\n and ", @$edkdirs )."\n";
+if ( $verbosity >= 1 ) {
+  print "Importing EFI headers into $gpxedir\nfrom ";
+  print join ( "\n and ", map { catdir ( $edktop, $_ ) } @$edkdirs )."\n";
+}
 
 # Import headers
 find ( { wanted => sub {
-  try_import_file ( $gpxedir, $edkdirs, abs2rel ( $_, $gpxedir ) );
+  try_import_file ( $gpxedir, $edktop, $edkdirs, abs2rel ( $_, $gpxedir ) );
 }, no_chdir => 1 }, $gpxedir );
