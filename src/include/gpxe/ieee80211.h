@@ -1,6 +1,7 @@
 #ifndef _GPXE_IEEE80211_H
 #define _GPXE_IEEE80211_H
 
+#include <stddef.h>
 #include <gpxe/if_ether.h>	/* for ETH_ALEN */
 #include <endian.h>
 
