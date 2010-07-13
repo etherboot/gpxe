@@ -174,13 +174,14 @@ tcp_dump_flags ( struct tcp_connection *tcp, unsigned int flags ) {
  */
 static int tcp_bind ( struct tcp_connection *tcp, unsigned int port ) {
 	struct tcp_connection *existing;
-	static uint16_t try_port = 1023;
+	uint16_t try_port;
+	int i;
 
-	/* If no port specified, find the first available port */
+	/* If no port specified, find an available port */
 	if ( ! port ) {
-		while ( try_port ) {
-			try_port++;
-			if ( try_port < 1024 )
+		try_port = ( random() % 64512 ) + 1023;
+		for ( i = 0 ; i < 65536 ; ++i ) {
+			if ( ++try_port < 1024 )
 				continue;
 			if ( tcp_bind ( tcp, try_port ) == 0 )
 				return 0;
