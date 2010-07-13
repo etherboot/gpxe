@@ -112,6 +112,7 @@ struct console_driver {
 /* Function prototypes */
 
 extern void putchar ( int character );
+extern int getchar_timeout ( unsigned long timeout );
 extern int getchar ( void );
 extern int iskey ( void );
 extern int getkey ( void );

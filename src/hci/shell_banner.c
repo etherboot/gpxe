@@ -37,10 +37,9 @@ FILE_LICENCE ( GPL2_OR_LATER );
  * @ret	enter_shell		User wants to enter shell
  */
 int shell_banner ( void ) {
-	int enter_shell = 0;
-	int wait_count;
 	int key;
 
+	/* Skip prompt if timeout is zero */
 	if ( BANNER_TIMEOUT <= 0 )
 		return 0;
 
@@ -48,18 +47,10 @@ int shell_banner ( void ) {
 	printf ( "\nPress Ctrl-B for the gPXE command line..." );
 
 	/* Wait for key */
-	for ( wait_count = 0 ; wait_count < BANNER_TIMEOUT ; wait_count++ ) {
-		if ( iskey() ) {
-			key = getchar();
-			if ( key == CTRL_B )
-				enter_shell = 1;
-			break;
-		}
-		mdelay(100);
-	}
+	key = getchar_timeout ( ( BANNER_TIMEOUT * TICKS_PER_SEC ) / 10 );
 
 	/* Clear the "Press Ctrl-B" line */
 	printf ( "\r                                         \r" );
 
-	return enter_shell;
+	return ( key == CTRL_B );
 }
