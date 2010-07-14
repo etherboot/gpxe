@@ -41,10 +41,10 @@ int shell_banner ( void ) {
 	int wait_count;
 	int key;
 
-	if ( BANNER_TIMEOUT <=  0 ) {
-		return enter_shell;
-	}
+	if ( BANNER_TIMEOUT <= 0 )
+		return 0;
 
+	/* Display prompt */
 	printf ( "\nPress Ctrl-B for the gPXE command line..." );
 
 	/* Wait for key */
