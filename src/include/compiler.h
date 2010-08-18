@@ -188,7 +188,15 @@ REQUEST_EXPANDED ( CONFIG_SYMBOL );
  * used).  This results in the non-weak symbol never being used, so explicitly
  * mark the function as noinline to prevent inlining.
  */
-#define __weak		__attribute__ (( weak )) __attribute (( noinline ))
+#define __weak		__attribute__ (( weak, noinline ))
+
+/** Prevent a function from being optimized away without inlining
+ *
+ * Calls to functions with void return type that contain no code in their body
+ * may be removed by gcc's optimizer even when inlining is inhibited. Placing
+ * this macro in the body of the function prevents that from occurring.
+ */
+#define __keepme	asm("");
 
 #endif
 
