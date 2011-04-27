@@ -17,9 +17,11 @@
 
 struct net_protocol ipv6_protocol;
 
+char * inet6_ntoa ( struct in6_addr in6 );
+
 /* Unspecified IP6 address */
 static struct in6_addr ip6_none = {
-        .in6_u.u6_addr32 = { 0,0,0,0 }
+	.in6_u.u6_addr32 = { 0,0,0,0 }
 };
 
 /** An IPv6 routing table entry */
@@ -52,12 +54,15 @@ static LIST_HEAD ( miniroutes );
  * @v gateway		Gateway address (or ::0 for no gateway)
  * @ret miniroute	Routing table entry, or NULL
  */
-static struct ipv6_miniroute * __malloc 
+static struct ipv6_miniroute * __malloc
 add_ipv6_miniroute ( struct net_device *netdev, struct in6_addr prefix,
 		     int prefix_len, struct in6_addr address,
 		     struct in6_addr gateway ) {
 	struct ipv6_miniroute *miniroute;
 	
+	DBG("ipv6 add: %s/%d ", inet6_ntoa(address), prefix_len * 8);
+	DBG("gw %s\n", inet6_ntoa(gateway));
+
 	miniroute = malloc ( sizeof ( *miniroute ) );
 	if ( miniroute ) {
 		/* Record routing information */
@@ -66,7 +71,7 @@ add_ipv6_miniroute ( struct net_device *netdev, struct in6_addr prefix,
 		miniroute->prefix_len = prefix_len;
 		miniroute->address = address;
 		miniroute->gateway = gateway;
-		
+
 		/* Add miniroute to list of miniroutes */
 		if ( !IP6_EQUAL ( gateway, ip6_none ) ) {
 			list_add_tail ( &miniroute->list, &miniroutes );
@@ -84,6 +89,10 @@ add_ipv6_miniroute ( struct net_device *netdev, struct in6_addr prefix,
  * @v miniroute		Routing table entry
  */
 static void del_ipv6_miniroute ( struct ipv6_miniroute *miniroute ) {
+	
+	DBG("ipv6 del: %s/%d\n", inet6_ntoa(miniroute->address),
+	                         miniroute->prefix_len * 8);
+	
 	netdev_put ( miniroute->netdev );
 	list_del ( &miniroute->list );
 	free ( miniroute );
@@ -160,9 +169,11 @@ static uint16_t ipv6_tx_csum ( struct io_buffer *iobuf, uint16_t csum ) {
  * ip6hdr	IPv6 header
  */
 void ipv6_dump ( struct ip6_header *ip6hdr ) {
-	DBG ( "IP6 %p src %s dest %s nxt_hdr %d len %d\n", ip6hdr,
-	      inet6_ntoa ( ip6hdr->src ), inet6_ntoa ( ip6hdr->dest ),
-	      ip6hdr->nxt_hdr, ntohs ( ip6hdr->payload_len ) );
+	/* Because inet6_ntoa returns a static char[16], each call needs to be
+	 * separate. */
+	DBG ( "IP6 %p src %s ", ip6hdr, inet6_ntoa( ip6hdr->src ) );
+	DBG ( "dest %s nxt_hdr %d len %d\n", inet6_ntoa ( ip6hdr->dest ),
+		  ip6hdr->nxt_hdr, ntohs ( ip6hdr->payload_len ) );
 }
 
 /**
@@ -225,7 +236,7 @@ static int ipv6_tx ( struct io_buffer *iobuf,
 
 	/* Print IPv6 header */
 	ipv6_dump ( ip6hdr );
-	
+
 	/* Resolve link layer address */
 	if ( next_hop.in6_u.u6_addr8[0] == 0xff ) {
 		ll_dest_buf[0] = 0x33;
@@ -258,28 +269,30 @@ static int ipv6_tx ( struct io_buffer *iobuf,
  * @v nxt_hdr	Next header number
  * @v src	Source socket address
  * @v dest	Destination socket address
+ * @v phcsm Partial checksum over the IPv6 psuedo-header.
  *
  * Refer http://www.iana.org/assignments/ipv6-parameters for the numbers
  */
 static int ipv6_process_nxt_hdr ( struct io_buffer *iobuf, uint8_t nxt_hdr,
-		struct sockaddr_tcpip *src, struct sockaddr_tcpip *dest ) {
+		struct sockaddr_tcpip *src, struct sockaddr_tcpip *dest,
+		uint16_t phcsm ) {
 	switch ( nxt_hdr ) {
-	case IP6_HOPBYHOP: 
-	case IP6_ROUTING: 
-	case IP6_FRAGMENT: 
-	case IP6_AUTHENTICATION: 
-	case IP6_DEST_OPTS: 
-	case IP6_ESP: 
+	case IP6_HOPBYHOP:
+	case IP6_ROUTING:
+	case IP6_FRAGMENT:
+	case IP6_AUTHENTICATION:
+	case IP6_DEST_OPTS:
+	case IP6_ESP:
 		DBG ( "Function not implemented for header %d\n", nxt_hdr );
 		return -ENOSYS;
-	case IP6_ICMP6: 
+	case IP6_ICMP6:
 		break;
-	case IP6_NO_HEADER: 
+	case IP6_NO_HEADER:
 		DBG ( "No next header\n" );
 		return 0;
 	}
 	/* Next header is not a IPv6 extension header */
-	return tcpip_rx ( iobuf, nxt_hdr, src, dest, 0 /* fixme */ );
+	return tcpip_rx ( iobuf, nxt_hdr, src, dest, phcsm );
 }
 
 /**
@@ -300,6 +313,7 @@ static int ipv6_rx ( struct io_buffer *iobuf,
 		struct sockaddr_in6 sin6;
 		struct sockaddr_tcpip st;
 	} src, dest;
+	uint16_t phcsm = 0;
 
 	/* Sanity check */
 	if ( iob_len ( iobuf ) < sizeof ( *ip6hdr ) ) {
@@ -307,13 +321,11 @@ static int ipv6_rx ( struct io_buffer *iobuf,
 		goto drop;
 	}
 
-	/* TODO: Verify checksum */
-
 	/* Print IP6 header for debugging */
 	ipv6_dump ( ip6hdr );
 
 	/* Check header version */
-	if ( ( ip6hdr->ver_traffic_class_flow_label & 0xf0000000 ) != 0x60000000 ) {
+	if ( ( ntohl( ip6hdr->ver_traffic_class_flow_label ) & 0xf0000000 ) != 0x60000000 ) {
 		DBG ( "Invalid protocol version\n" );
 		goto drop;
 	}
@@ -335,28 +347,80 @@ static int ipv6_rx ( struct io_buffer *iobuf,
 	dest.sin6.sin_family = AF_INET6;
 	dest.sin6.sin6_addr = ip6hdr->dest;
 
+	/* Calculate the psuedo-header checksum before the IP6 header is
+	 * stripped away. */
+	phcsm = ipv6_tx_csum ( iobuf, 0 );
+
 	/* Strip header */
 	iob_unput ( iobuf, iob_len ( iobuf ) - ntohs ( ip6hdr->payload_len ) -
 							sizeof ( *ip6hdr ) );
 	iob_pull ( iobuf, sizeof ( *ip6hdr ) );
 
 	/* Send it to the transport layer */
-	return ipv6_process_nxt_hdr ( iobuf, ip6hdr->nxt_hdr, &src.st, &dest.st );
+	return ipv6_process_nxt_hdr ( iobuf, ip6hdr->nxt_hdr, &src.st, &dest.st,
+				      phcsm );
 
   drop:
-	DBG ( "Packet dropped\n" );
+	DBG ( "IP6 packet dropped\n" );
 	free_iob ( iobuf );
 	return -1;
 }
 
 /**
- * Print a IP6 address as xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx
+ * Convert an IPv6 address to a string.
+ *
+ * @v in6   Address to convert to string.
+ *
+ * Converts an IPv6 address to a string, and applies zero-compression as needed
+ * to condense the address for easier reading/typing.
  */
 char * inet6_ntoa ( struct in6_addr in6 ) {
 	static char buf[40];
 	uint16_t *bytes = ( uint16_t* ) &in6;
-	sprintf ( buf, "%x:%x:%x:%x:%x:%x:%x:%x", bytes[0], bytes[1], bytes[2],
-			bytes[3], bytes[4], bytes[5], bytes[6], bytes[7] );
+	size_t i = 0, longest = 0, tmp = 0, long_idx = ~0;
+
+	/* Determine the longest string of zeroes for zero-compression. */
+	for ( ; i < 8; i++ ) {
+		if ( !bytes[i] )
+			tmp++;
+		else if(tmp > longest) {
+			longest = tmp;
+			long_idx = i - longest;
+			
+			tmp = 0;
+		}
+	}
+	
+	/* Check for last word being zero. This will cause long_idx to be zero,
+	 * which confuses the actual buffer fill code. */
+	if(tmp && (tmp > longest)) {
+		longest = tmp;
+		long_idx = 8 - longest;
+	}
+
+	/* Inject into the buffer. */
+	tmp = 0;
+	for ( i = 0; i < 8; i++ ) {
+		/* Should we skip over a string of zeroes? */
+		if ( i == long_idx ) {
+			i += longest;
+			tmp += sprintf( buf + tmp, ":" );
+
+			/* Handle end-of-string. */
+			if(i > 7)
+				break;
+		}
+
+		/* Insert this component of the address. */
+		tmp += sprintf(buf + tmp, "%x", ntohs(bytes[i]));
+
+		/* Add the next colon, if needed. */
+		if ( i < 7 )
+			tmp += sprintf( buf + tmp, ":" );
+	}
+
+	buf[tmp] = 0;
+
 	return buf;
 }
 
@@ -366,7 +430,7 @@ static const char * ipv6_ntoa ( const void *net_addr ) {
 
 /** IPv6 protocol */
 struct net_protocol ipv6_protocol __net_protocol = {
-	.name = "IPv6",
+	.name = "IPV6",
 	.net_proto = htons ( ETH_P_IPV6 ),
 	.net_addr_len = sizeof ( struct in6_addr ),
 	.rx = ipv6_rx,
