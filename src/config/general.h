@@ -121,6 +121,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #undef	TIME_CMD		/* Time commands */
 #undef	DIGEST_CMD		/* Image crypto digest commands */
 //#undef	PXE_CMD			/* PXE commands */
+#define IPV6_CMD		/* IPv6 commands */
 
 /*
  * Error message tables to include
