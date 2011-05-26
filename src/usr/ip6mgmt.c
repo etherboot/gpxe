@@ -34,8 +34,8 @@ FILE_LICENCE ( GPL2_OR_LATER );
 /* Maximum length of the link-layer address we'll insert as an EUI-64. */
 #define AUTOCONF_LL_MAX	6
 
-int ip6_autoconf ( struct net_device *netdev __unused ) {
-	struct in6_addr ip6addr;
+int ip6_autoconf ( struct net_device *netdev ) {
+	struct in6_addr ip6addr, ip6zero;
 	size_t ll_size;
 	int rc;
 
@@ -50,6 +50,7 @@ int ip6_autoconf ( struct net_device *netdev __unused ) {
 	/* Create the host ID part of the IPv6 address from the Link-Layer
 	 * address on the netdevice. */
 	memset ( &ip6addr, 0, sizeof (struct in6_addr) );
+	memset ( &ip6zero, 0, sizeof (struct in6_addr) );
 	
 	ll_size = netdev->ll_protocol->ll_addr_len;
 	if ( ll_size < 6 ) {
@@ -69,7 +70,13 @@ int ip6_autoconf ( struct net_device *netdev __unused ) {
 	ip6addr.s6_addr[0] = 0xFE;
 	ip6addr.s6_addr[1] = 0x80;
 	
-	DBG( "ip6 autoconfig address is %s\n", inet6_ntoa(ip6addr) );
+	/* TODO: send a few neighbour solicits on this address before we take
+	 * it (once NDP is implemented). */
+	
+	DBG( "ipv6 autoconfig address is %s\n", inet6_ntoa(ip6addr) );
+	
+	/* Add as a route. */
+	add_ipv6_address ( netdev, ip6addr, 10, ip6addr, ip6zero );
 	
 	return 0;
 }

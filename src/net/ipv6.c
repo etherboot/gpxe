@@ -49,7 +49,7 @@ static LIST_HEAD ( miniroutes );
  * Add IPv6 minirouting table entry
  *
  * @v netdev		Network device
- * @v prefix		Destination prefix
+ * @v prefix		Destination prefix (in bits)
  * @v address		Address of the interface
  * @v gateway		Gateway address (or ::0 for no gateway)
  * @ret miniroute	Routing table entry, or NULL
@@ -60,7 +60,7 @@ add_ipv6_miniroute ( struct net_device *netdev, struct in6_addr prefix,
 		     struct in6_addr gateway ) {
 	struct ipv6_miniroute *miniroute;
 	
-	DBG("ipv6 add: %s/%d ", inet6_ntoa(address), prefix_len * 8);
+	DBG("ipv6 add: %s/%d ", inet6_ntoa(address), prefix_len);
 	DBG("gw %s\n", inet6_ntoa(gateway));
 
 	miniroute = malloc ( sizeof ( *miniroute ) );
@@ -91,7 +91,7 @@ add_ipv6_miniroute ( struct net_device *netdev, struct in6_addr prefix,
 static void del_ipv6_miniroute ( struct ipv6_miniroute *miniroute ) {
 	
 	DBG("ipv6 del: %s/%d\n", inet6_ntoa(miniroute->address),
-	                         miniroute->prefix_len * 8);
+	                         miniroute->prefix_len);
 	
 	netdev_put ( miniroute->netdev );
 	list_del ( &miniroute->list );
