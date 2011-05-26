@@ -167,9 +167,20 @@ struct uri * parse_uri ( const char *uri_string ) {
 
 		/* Split host into host[:port] */
 		if ( ( tmp = strchr ( uri->host, ':' ) ) ) {
-			*(tmp++) = '\0';
-			uri->port = tmp;
+			/* Make sure an IPv6 address isn't broken up. */
+			if ( ( strchr ( uri->host, '[' ) == 0 ) ||
+			     ( tmp > strchr ( uri->host, ']' ) ) ) {
+				*(tmp++) = '\0';
+				uri->port = tmp;
+			}
 		}
+		
+		/* Handle IPv6 case. */
+		if ( ( uri->host <= strchr ( uri->host, '[' ) ) &&
+		     ( tmp = strchr ( uri->host, ']' ) ) ) {
+			uri->host++;
+			*(tmp) = 0;
+	        }
 	}
 
 	/* Decode fields that should be decoded */
@@ -410,6 +421,10 @@ static int is_unreserved_uri_char ( int c, int field ) {
 	int ok = ( isupper ( c ) || islower ( c ) || isdigit ( c ) ||
 		    ( c == '-' ) || ( c == '_' ) ||
 		    ( c == '.' ) || ( c == '~' ) );
+
+	/* : is valid for an IPv6 host address */
+	if ( field == URI_HOST )
+		ok = ok || (c == ':');
 
 	if ( field == URI_QUERY )
 		ok = ok || ( c == ';' ) || ( c == '&' ) || ( c == '=' );
