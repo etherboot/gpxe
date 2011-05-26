@@ -378,6 +378,13 @@ char * inet6_ntoa ( struct in6_addr in6 ) {
 	static char buf[40];
 	uint16_t *bytes = ( uint16_t* ) &in6;
 	size_t i = 0, longest = 0, tmp = 0, long_idx = ~0;
+	
+	/* ::0 */
+	if ( IP6_EQUAL ( in6, ip6_none ) ) {
+		tmp = sprintf ( buf, "::0" );
+		buf[tmp] = 0;
+		return buf;
+	}
 
 	/* Determine the longest string of zeroes for zero-compression. */
 	for ( ; i < 8; i++ ) {
