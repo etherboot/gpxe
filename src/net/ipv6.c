@@ -431,6 +431,50 @@ char * inet6_ntoa ( struct in6_addr in6 ) {
 	return buf;
 }
 
+/**
+ * Convert a string to an IPv6 address.
+ *
+ * @v in6   String to convert to an address.
+ */
+int inet6_aton ( const char *cp, struct in6_addr *inp ) {
+	char convbuf[40];
+	char *tmp = convbuf, *next = convbuf;
+	size_t i = 0;
+	
+	strcpy ( convbuf, cp );
+	
+	DBG ( "ipv6 converting %s to an in6_addr\n", cp );
+	
+	/* Handle the first part of the address (or all of it if no zero-compression. */
+	while ( ( next = strchr ( next, ':' ) ) ) {
+		/* Cater for zero-compression. */
+		if ( *tmp == ':' )
+			break;
+		
+		/* Convert to integer. */
+		inp->s6_addr16[i++] = htons( strtoul ( tmp, 0, 16 ) );
+		
+		*next++ = 0;
+		tmp = next;
+	}
+	
+	/* Handle zero-compression now (go backwards). */
+	i = 7;
+	if ( *tmp == ':' ) {
+		next = strrchr ( next, ':' );
+		do
+		{
+			tmp = next + 1;
+			*next-- = 0;
+		
+			/* Convert to integer. */
+			inp->s6_addr16[i--] = htons( strtoul ( tmp, 0, 16 ) );
+		} while ( ( next = strrchr ( next, ':' ) ) );
+	}
+	
+	return 1;
+}
+
 static const char * ipv6_ntoa ( const void *net_addr ) {
 	return inet6_ntoa ( * ( ( struct in6_addr * ) net_addr ) );
 }

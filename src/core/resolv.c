@@ -116,6 +116,7 @@ static int numeric_resolv ( struct resolv_interface *resolv,
 			    const char *name, struct sockaddr *sa ) {
 	struct numeric_resolv *numeric;
 	struct sockaddr_in *sin;
+	struct sockaddr_in6 *sin6;
 
 	/* Allocate and initialise structure */
 	numeric = zalloc ( sizeof ( *numeric ) );
@@ -132,8 +133,13 @@ static int numeric_resolv ( struct resolv_interface *resolv,
 	/* Attempt to resolve name */
 	sin = ( ( struct sockaddr_in * ) &numeric->sa );
 	sin->sin_family = AF_INET;
-	if ( inet_aton ( name, &sin->sin_addr ) == 0 )
-		numeric->rc = -EINVAL;
+	if ( inet_aton ( name, &sin->sin_addr ) == 0 ) {
+		sin6 = ( ( struct sockaddr_in6 * ) &numeric->sa );
+		sin6->sin_family = AF_INET6;
+		if ( inet6_aton ( name, &sin6->sin6_addr ) == 0 ) {
+			numeric->rc = -EINVAL;
+		}
+	}
 
 	/* Attach to parent interface, mortalise self, and return */
 	resolv_plug_plug ( &numeric->resolv, resolv );
