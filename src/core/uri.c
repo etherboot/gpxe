@@ -166,10 +166,9 @@ struct uri * parse_uri ( const char *uri_string ) {
 		}
 
 		/* Split host into host[:port] */
-		if ( ( tmp = strchr ( uri->host, ':' ) ) ) {
+		if ( ( tmp = strrchr ( uri->host, ':' ) ) ) {
 			/* Make sure an IPv6 address isn't broken up. */
-			if ( ( strchr ( uri->host, '[' ) == 0 ) ||
-			     ( tmp > strchr ( uri->host, ']' ) ) ) {
+			if ( ( tmp > strchr ( uri->host, ']' ) ) ) {
 				*(tmp++) = '\0';
 				uri->port = tmp;
 			}
