@@ -90,8 +90,8 @@ add_ipv6_miniroute ( struct net_device *netdev, struct in6_addr prefix,
  */
 static void del_ipv6_miniroute ( struct ipv6_miniroute *miniroute ) {
 	
-	DBG("ipv6 del: %s/%d\n", inet6_ntoa(miniroute->address),
-	                         miniroute->prefix_len);
+	DBG ( "ipv6 del: %s/%d\n", inet6_ntoa(miniroute->address),
+				   miniroute->prefix_len );
 	
 	netdev_put ( miniroute->netdev );
 	list_del ( &miniroute->list );
