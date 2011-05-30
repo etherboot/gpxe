@@ -1303,10 +1303,16 @@ static struct xfer_interface_operations tcp_xfer_operations = {
  ***************************************************************************
  */
 
-/** TCP socket opener */
+/** TCP socket openers */
 struct socket_opener tcp_socket_opener __socket_opener = {
 	.semantics	= TCP_SOCK_STREAM,
 	.family		= AF_INET,
+	.open		= tcp_open,
+};
+
+struct socket_opener tcp_socket_opener_v6 __socket_opener = {
+	.semantics	= TCP_SOCK_STREAM,
+	.family		= AF_INET6,
 	.open		= tcp_open,
 };
 
