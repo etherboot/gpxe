@@ -112,7 +112,7 @@ int add_ipv6_address ( struct net_device *netdev, struct in6_addr prefix,
 	struct ipv6_miniroute *miniroute;
 
 	/* Clear any existing address for this net device */
-	del_ipv6_address ( netdev );
+	/* del_ipv6_address ( netdev ); */
 
 	/* Add new miniroute */
 	miniroute = add_ipv6_miniroute ( netdev, prefix, prefix_len, address,
@@ -194,9 +194,12 @@ static int ipv6_tx ( struct io_buffer *iobuf,
 	struct sockaddr_in6 *dest = ( struct sockaddr_in6* ) st_dest;
 	struct in6_addr next_hop;
 	struct ipv6_miniroute *miniroute;
-	uint8_t ll_dest_buf[MAX_LL_ADDR_LEN];
+	uint8_t ll_dest_buf[MAX_LL_ADDR_LEN], ip1, ip2;
 	const uint8_t *ll_dest = ll_dest_buf;
-	int rc;
+	int rc, multicast, linklocal, bits, offset;
+	
+	/* Check for multicast transmission. */
+	multicast = dest->sin6_addr.in6_u.u6_addr8[0] == 0xFF;
 
 	/* Construct the IPv6 packet */
 	struct ip6_header *ip6hdr = iob_push ( iobuf, sizeof ( *ip6hdr ) );
@@ -205,19 +208,73 @@ static int ipv6_tx ( struct io_buffer *iobuf,
 	ip6hdr->payload_len = htons ( iob_len ( iobuf ) - sizeof ( *ip6hdr ) );
 	ip6hdr->nxt_hdr = tcpip->tcpip_proto;
 	ip6hdr->hop_limit = IP6_HOP_LIMIT; // 255
-
-	/* Determine the next hop address and interface
-	 *
-	 * TODO: Implement the routing table.
-	 */
+	
+	/* Determine the next hop address and interface. */
 	next_hop = dest->sin6_addr;
 	list_for_each_entry ( miniroute, &miniroutes, list ) {
-		if ( ( memcmp ( &ip6hdr->dest, &miniroute->prefix,
-					miniroute->prefix_len ) == 0 ) ||
-		     ( IP6_EQUAL ( miniroute->gateway, ip6_none ) ) ) {
+		/* Link-local route? */
+		linklocal = (miniroute->address.in6_u.u6_addr16[0] & htons(0xFE80)) == htons(0xFE80);
+
+		/* Handle link-local for multicast. */
+		if ( multicast )
+		{
+			/* Link-local scope? */
+			if ( next_hop.in6_u.u6_addr8[0] & 0x2 ) {
+				if ( linklocal ) {
+					netdev = miniroute->netdev;
+					ip6hdr->src = miniroute->address;
+					
+					DBG ( "ipv6: link-local multicast, sending as %s\n", inet6_ntoa ( ip6hdr->src ) );
+					break;
+				} else {
+					/* Should be link-local address. */
+					continue;
+				}
+			} else {
+				DBG ( "ipv6: non-link-local multicast\n" );
+				
+				/* Can we route on this interface?
+				   (assume non-link-local means routable) */
+				if ( ! linklocal ) {
+					netdev = miniroute->netdev;
+					ip6hdr->src = miniroute->address;
+					break;
+				}
+			}
+		}
+		
+		/* Check for a prefix match on the route. */
+		if ( ! memcmp ( &next_hop, &miniroute->prefix, miniroute->prefix_len / 8 ) ) {
+			rc = 0;
+			
+			/* Handle extra bits in the prefix. */
+			if ( ( miniroute->prefix_len % 2 ) ||
+			     ( miniroute->prefix_len < 8 ) ) {
+				DBG ( "ipv6: prefix is not aligned to a byte.\n" );
+			
+				/* Compare the remaining bits. */
+				offset = miniroute->prefix_len / 8;
+				bits = miniroute->prefix_len % 8;
+				
+				ip1 = next_hop.in6_u.u6_addr8[offset];
+				ip2 = miniroute->prefix.in6_u.u6_addr8[offset];
+				if ( ! ( ( ip1 & (0xFF >> (8 - bits)) ) &
+				     ( ip2 ) ) ) {
+					rc = 1;
+				}
+			}
+		} else {
+			rc = 1;
+		}
+		
+		/* Matched? */
+		if( rc == 0 ) {
+			DBG ( "ipv6: route found for %s.\n", inet6_ntoa ( next_hop ) );
+			
 			netdev = miniroute->netdev;
 			ip6hdr->src = miniroute->address;
 			if ( ! ( IS_UNSPECIFIED ( miniroute->gateway ) ) ) {
+				DBG ( "    (via %s)\n", inet6_ntoa ( miniroute->gateway ) );
 				next_hop = miniroute->gateway;
 			}
 			break;
@@ -229,16 +286,19 @@ static int ipv6_tx ( struct io_buffer *iobuf,
 		rc = -ENETUNREACH;
 		goto err;
 	}
+	
+	/* Add the next hop to the packet. */
+	ip6hdr->dest = next_hop;
 
 	/* Complete the transport layer checksum */
 	if ( trans_csum )
 		*trans_csum = ipv6_tx_csum ( iobuf, *trans_csum );
 
 	/* Print IPv6 header */
-	ipv6_dump ( ip6hdr );
+	/* ipv6_dump ( ip6hdr ); */
 
 	/* Resolve link layer address */
-	if ( next_hop.in6_u.u6_addr8[0] == 0xff ) {
+	if ( next_hop.in6_u.u6_addr8[0] == 0xFF ) {
 		ll_dest_buf[0] = 0x33;
 		ll_dest_buf[1] = 0x33;
 		ll_dest_buf[2] = next_hop.in6_u.u6_addr8[12];
@@ -322,7 +382,7 @@ static int ipv6_rx ( struct io_buffer *iobuf,
 	}
 
 	/* Print IP6 header for debugging */
-	ipv6_dump ( ip6hdr );
+	/* ipv6_dump ( ip6hdr ); */
 
 	/* Check header version */
 	if ( ( ntohl( ip6hdr->ver_traffic_class_flow_label ) & 0xf0000000 ) != 0x60000000 ) {
