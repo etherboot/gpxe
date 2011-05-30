@@ -48,17 +48,13 @@ int icmp6_send_solicit ( struct net_device *netdev, struct in6_addr *src __unuse
 	nsolicit->csum = 0;
 	nsolicit->csum = tcpip_chksum ( nsolicit, sizeof ( *nsolicit ) );
 
-	/* Solicited multicast address */
+	/* Solicited multicast address - FF02::1 (all stations on local network) */
+	memset(&st_dest.sin6, 0, sizeof(st_dest.sin6));
 	st_dest.sin6.sin_family = AF_INET6;
 	st_dest.sin6.sin6_addr.in6_u.u6_addr8[0] = 0xff;
-	st_dest.sin6.sin6_addr.in6_u.u6_addr8[2] = 0x02;
-	st_dest.sin6.sin6_addr.in6_u.u6_addr16[1] = 0x0000;
-	st_dest.sin6.sin6_addr.in6_u.u6_addr32[1] = 0x00000000;
-	st_dest.sin6.sin6_addr.in6_u.u6_addr16[4] = 0x0000;
-	st_dest.sin6.sin6_addr.in6_u.u6_addr16[5] = 0x0001;
-	st_dest.sin6.sin6_addr.in6_u.u6_addr32[3] = dest->in6_u.u6_addr32[3];
-	st_dest.sin6.sin6_addr.in6_u.u6_addr8[13] = 0xff;
-	
+	st_dest.sin6.sin6_addr.in6_u.u6_addr8[1] = 0x2;
+	st_dest.sin6.sin6_addr.in6_u.u6_addr8[15] = 0x1;
+
 	/* Send packet over IP6 */
 	return tcpip_tx ( iobuf, &icmp6_protocol, NULL, &st_dest.st,
 			  NULL, &nsolicit->csum );
