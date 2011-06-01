@@ -223,16 +223,12 @@ static int ipv6_tx ( struct io_buffer *iobuf,
 				if ( linklocal ) {
 					netdev = miniroute->netdev;
 					ip6hdr->src = miniroute->address;
-					
-					DBG ( "ipv6: link-local multicast, sending as %s\n", inet6_ntoa ( ip6hdr->src ) );
 					break;
 				} else {
 					/* Should be link-local address. */
 					continue;
 				}
 			} else {
-				DBG ( "ipv6: non-link-local multicast\n" );
-				
 				/* Can we route on this interface?
 				   (assume non-link-local means routable) */
 				if ( ! linklocal ) {
@@ -269,8 +265,6 @@ static int ipv6_tx ( struct io_buffer *iobuf,
 		
 		/* Matched? */
 		if( rc == 0 ) {
-			DBG ( "ipv6: route found for %s.\n", inet6_ntoa ( next_hop ) );
-			
 			netdev = miniroute->netdev;
 			ip6hdr->src = miniroute->address;
 			if ( ! ( IS_UNSPECIFIED ( miniroute->gateway ) ) ) {
@@ -519,18 +513,26 @@ int inet6_aton ( const char *cp, struct in6_addr *inp ) {
 		tmp = next;
 	}
 	
-	/* Handle zero-compression now (go backwards). */
-	i = 7;
-	if ( *tmp == ':' ) {
-		next = strrchr ( next, ':' );
-		do
-		{
-			tmp = next + 1;
-			*next-- = 0;
-		
-			/* Convert to integer. */
-			inp->s6_addr16[i--] = htons( strtoul ( tmp, 0, 16 ) );
-		} while ( ( next = strrchr ( next, ':' ) ) );
+	/* Handle the case where no zero-compression is needed, but every word
+	 * was filled in the address. */
+	if ( ( i == 7 ) && ( *tmp != ':' ) ) {
+		inp->s6_addr16[i++] = htons( strtoul ( tmp, 0, 16 ) );
+	}
+	else
+	{
+		/* Handle zero-compression now (go backwards). */
+		i = 7;
+		if ( i && ( *tmp == ':' ) ) {
+			next = strrchr ( next, ':' );
+			do
+			{
+				tmp = next + 1;
+				*next-- = 0;
+	
+				/* Convert to integer. */
+				inp->s6_addr16[i--] = htons( strtoul ( tmp, 0, 16 ) );
+			} while ( ( next = strrchr ( next, ':' ) ) );
+		}
 	}
 	
 	return 1;
