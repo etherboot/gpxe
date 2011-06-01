@@ -60,8 +60,8 @@ add_ipv6_miniroute ( struct net_device *netdev, struct in6_addr prefix,
 		     struct in6_addr gateway ) {
 	struct ipv6_miniroute *miniroute;
 	
-	DBG("ipv6 add: %s/%d ", inet6_ntoa(address), prefix_len);
-	DBG("gw %s\n", inet6_ntoa(gateway));
+	DBG( "ipv6 add: %s/%d ", inet6_ntoa ( address ), prefix_len );
+	DBG( "gw %s\n", inet6_ntoa( gateway ) );
 
 	miniroute = malloc ( sizeof ( *miniroute ) );
 	if ( miniroute ) {
@@ -540,6 +540,20 @@ static const char * ipv6_ntoa ( const void *net_addr ) {
 	return inet6_ntoa ( * ( ( struct in6_addr * ) net_addr ) );
 }
 
+static int ipv6_check ( struct net_device *netdev, const void *net_addr ) {
+	const struct in6_addr *address = net_addr;
+	struct ipv6_miniroute *miniroute;
+
+	list_for_each_entry ( miniroute, &miniroutes, list ) {
+		if ( ( miniroute->netdev == netdev ) &&
+		     ( ! memcmp ( &miniroute->address, address, 16 ) ) ) {
+			/* Found matching address */
+			return 0;
+		}
+	}
+	return -ENOENT;
+}
+
 /** IPv6 protocol */
 struct net_protocol ipv6_protocol __net_protocol = {
 	.name = "IPV6",
@@ -555,3 +569,10 @@ struct tcpip_net_protocol ipv6_tcpip_protocol __tcpip_net_protocol = {
 	.sa_family = AF_INET6,
 	.tx = ipv6_tx,
 };
+
+/** IPv6 ICMPv6 protocol, for NDP */
+struct icmp6_net_protocol ipv6_icmp6_protocol __icmp6_net_protocol = {
+	.net_protocol = &ipv6_protocol,
+	.check = ipv6_check,
+};
+

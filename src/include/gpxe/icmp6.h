@@ -12,6 +12,32 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #include <gpxe/ip6.h>
 #include <gpxe/ndp.h>
 
+#include <gpxe/tables.h>
+
+struct net_device;
+struct net_protocol;
+
+/** A network-layer protocol that relies upon ICMPv6 */
+struct icmp6_net_protocol {
+	/** Network-layer protocol */
+	struct net_protocol *net_protocol;
+	/** Check existence of address
+	 *
+	 * @v netdev	Network device
+	 * @v net_addr	Network-layer address
+	 * @ret rc	Return status code
+	 */
+	int ( * check ) ( struct net_device *netdev,
+			  const void *net_addr );
+};
+
+/** ICMPv6 protocol table */
+#define ICMP6_NET_PROTOCOLS \
+	__table ( struct icmp6_net_protocol, "icmp6_net_protocols" )
+
+/** Declare an ICMPv6 protocol */
+#define __icmp6_net_protocol __table_entry ( ICMP6_NET_PROTOCOLS, 01 )
+
 #define ICMP6_NSOLICIT 135
 #define ICMP6_NADVERT 136
 
