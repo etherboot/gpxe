@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
 #include <byteswap.h>
 #include <errno.h>
 #include <gpxe/if_ether.h>
@@ -49,7 +50,7 @@ ndp_find_entry ( struct in6_addr *in6 ) {
 	struct ndp_entry *ndp;
 
 	for ( ndp = ndp_table ; ndp < ndp_table_end ; ndp++ ) {
-		if ( IP6_EQUAL ( ( *in6 ), ndp->in6 ) && 
+		if ( IP6_EQUAL ( ( *in6 ), ndp->in6 ) &&
 		     ( ndp->state != NDP_STATE_INVALID ) ) {
 			return ndp;
 		}
@@ -59,13 +60,13 @@ ndp_find_entry ( struct in6_addr *in6 ) {
 
 /**
  * Add NDP entry
- * 
+ *
  * @v netdev	Network device
  * @v in6	IP6 address
  * @v ll_addr	Link-layer address
  * @v state	State of the entry - one of the NDP_STATE_XXX values
  */
-static void 
+static void
 add_ndp_entry ( struct net_device *netdev, struct in6_addr *in6,
 		void *ll_addr, int state ) {
 	struct ndp_entry *ndp;
@@ -140,15 +141,106 @@ int ndp_resolve ( struct net_device *netdev, struct in6_addr *dest,
 }
 
 /**
+ * Process Router Advertisement
+ *
+ * @v iobuf I/O buffer containing the data.
+ * @v st_src Address of the source station.
+ * @v st_dest Address of the destination station. Typically FF02::1.
+ */
+int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src,
+			  struct sockaddr_tcpip *st_dest __unused, struct net_device *netdev,
+			  struct icmp6_net_protocol *net_protocol __unused ) {
+	struct router_advert *radvert = iobuf->data;
+	struct ndp_option *options = iobuf->data + sizeof(struct router_advert);
+	struct in6_addr router_addr = ( ( struct sockaddr_in6 * ) st_src )->sin6_addr;
+	struct in6_addr host_addr;
+	int rc = -ENOENT;
+	uint8_t prefix_len = 0;
+	size_t offset = sizeof ( struct router_advert ), ll_size;
+
+	memset ( &host_addr, 0, sizeof ( host_addr ) );
+
+	/* Verify that we shouldn't be trying DHCPv6 instead. */
+	if ( ntohs ( radvert->hops_flags ) & RADVERT_MANAGED ) {
+		DBG ( "ndp: router advertisement suggests DHCPv6\n" );
+		return 0;
+	}
+
+	/* Parse options. */
+	while ( offset < iob_len( iobuf ) ) {
+
+	    switch ( options->type ) {
+	    case NDP_OPTION_PREFIX_INFO:
+	        {
+	        struct prefix_option *opt = (struct prefix_option *) options;
+
+	        prefix_len = opt->prefix_len;
+
+	        if ( prefix_len % 8 ) {
+			/* FIXME: non-aligned prefixes unhandled */
+			DBG ( "ndp: prefix length is unaligned, connectivity may suffer.\n" );
+	        }
+
+	        if ( prefix_len > 64 ) {
+			/* > 64-bit prefix shouldn't happen. */
+			DBG ( "ndp: prefix length is quite long, connectivity may suffer.\n" );
+	        }
+
+		/* Create an IPv6 address for this station based on the prefix. */
+		ll_size = netdev->ll_protocol->ll_addr_len;
+		if ( ll_size < 6 ) {
+			memcpy ( host_addr.s6_addr + (8 - ll_size), netdev->ll_addr, ll_size );
+		} else {
+			/* Create an EUI-64 identifier. */
+			memcpy( host_addr.s6_addr + 8, netdev->ll_addr, 3 );
+			memcpy( host_addr.s6_addr + 8 + 5, netdev->ll_addr + 3, 3 );
+			host_addr.s6_addr[11] = 0xFF;
+			host_addr.s6_addr[12] = 0xFE;
+
+			/* Designate that this is in fact an EUI-64. */
+			host_addr.s6_addr[8] |= 0x2;
+		}
+
+	        memcpy( &host_addr.s6_addr, opt->prefix, prefix_len / 8 );
+
+	        rc = 0;
+	        }
+	        break;
+        default:
+		DBG ( "unhandled ndp option %d\n", options->type );
+	    }
+
+	    offset += options->length * 8;
+	    options = (struct ndp_option *) (iobuf->data + offset);
+	}
+
+	if ( rc ) {
+		DBG ( "ndp: couldn't generate a prefix from a router advertisement\n" );
+		return 0;
+	}
+
+	/* Configure a route based on this router if none exists. */
+	if ( net_protocol->check ( netdev, &host_addr ) ) {
+	        DBG ( "ndp: autoconfigured %s/%d via a router advertisement\n", inet6_ntoa( host_addr ), prefix_len);
+
+		add_ipv6_address ( netdev, host_addr, prefix_len, host_addr, router_addr );
+	}
+
+	return 0;
+}
+
+/**
  * Process neighbour advertisement
  *
  * @v iobuf	I/O buffer
  * @v st_src	Source address
- * @v st_dest	Destination address 
+ * @v st_dest	Destination address
  */
-int ndp_process_advert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src __unused,
-			   struct sockaddr_tcpip *st_dest __unused ) {
+int ndp_process_nadvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src __unused,
+			   struct sockaddr_tcpip *st_dest __unused,
+			   struct icmp6_net_protocol *net_protocol __unused ) {
 	struct neighbour_advert *nadvert = iobuf->data;
+	struct ll_option *ll_opt = iobuf->data + sizeof ( *nadvert );
 	struct ndp_entry *ndp;
 
 	/* Sanity check */
@@ -157,19 +249,21 @@ int ndp_process_advert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src 
 		return -EINVAL;
 	}
 
+	/* FIXME: assumes link-layer option is first. */
+
 	assert ( nadvert->code == 0 );
 	assert ( nadvert->flags & ICMP6_FLAGS_SOLICITED );
-	assert ( nadvert->opt_type == 2 );
+	assert ( ll_opt->type == 2 );
 
 	/* Update the neighbour cache, if entry is present */
 	ndp = ndp_find_entry ( &nadvert->target );
 	if ( ndp ) {
 
-	assert ( nadvert->opt_len ==
+	assert ( ll_opt->length ==
 			( ( 2 + ndp->ll_protocol->ll_addr_len ) / 8 ) );
 
 		if ( IP6_EQUAL ( ndp->in6, nadvert->target ) ) {
-			memcpy ( ndp->ll_addr, nadvert->opt_ll_addr,
+			memcpy ( ndp->ll_addr, ll_opt->address,
 				 ndp->ll_protocol->ll_addr_len );
 			ndp->state = NDP_STATE_REACHABLE;
 			return 0;
@@ -178,3 +272,30 @@ int ndp_process_advert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src 
 	DBG ( "Unsolicited advertisement (dropping packet)\n" );
 	return 0;
 }
+
+/**
+ * Process neighbour solicitation
+ *
+ * @v iobuf	I/O buffer
+ * @v st_src	Source address
+ * @v st_dest	Destination address
+ * @v netdev	Network device the packet was received on.
+ */
+int ndp_process_nsolicit ( struct io_buffer *iobuf __unused, struct sockaddr_tcpip *st_src,
+			   struct sockaddr_tcpip *st_dest __unused, struct net_device *netdev,
+			   struct icmp6_net_protocol *net_protocol ) {
+	struct neighbour_solicit *nsolicit = iobuf->data;
+	struct in6_addr *src =  &( ( struct sockaddr_in6 * ) st_src )->sin6_addr;
+
+	/* Does this match any addresses on the interface? */
+	if ( ! net_protocol->check ( netdev, &nsolicit->target ) ) {
+		/* Send an advertisement to the host. */
+		DBG ( "ndp: neighbour solicit received for us\n" );
+		return icmp6_send_advert ( netdev, &nsolicit->target, src );
+	} else {
+		DBG ( "ndp: neighbour solicit received but it's not for us\n" );
+	}
+
+	return 0;
+}
+

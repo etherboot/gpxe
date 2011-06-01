@@ -11,6 +11,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 
 #include <gpxe/ip6.h>
 #include <gpxe/ndp.h>
+#include <gpxe/tcpip.h>
 
 #include <gpxe/tables.h>
 
@@ -38,8 +39,12 @@ struct icmp6_net_protocol {
 /** Declare an ICMPv6 protocol */
 #define __icmp6_net_protocol __table_entry ( ICMP6_NET_PROTOCOLS, 01 )
 
-#define ICMP6_NSOLICIT 135
-#define ICMP6_NADVERT 136
+#define ICMP6_ECHO_REQUEST	128
+#define ICMP6_ECHO_RESPONSE	129
+#define ICMP6_ROUTER_SOLICIT	133
+#define ICMP6_ROUTER_ADVERT	134
+#define ICMP6_NSOLICIT		135
+#define ICMP6_NADVERT		136
 
 extern struct tcpip_protocol icmp6_protocol;
 
@@ -48,32 +53,6 @@ struct icmp6_header {
 	uint8_t code;
 	uint16_t csum;
 	/* Message body */
-};
-
-struct neighbour_solicit {
-	uint8_t type;
-	uint8_t code;
-	uint16_t csum;
-	uint32_t reserved;
-	struct in6_addr target;
-	/* "Compulsory" options */
-	uint8_t opt_type;
-	uint8_t opt_len;
-  /* FIXME:  hack alert */
-	uint8_t opt_ll_addr[6];
-};
-
-struct neighbour_advert {
-	uint8_t type;
-	uint8_t code;
-	uint16_t csum;
-	uint8_t flags;
-	uint8_t reserved;
-	struct in6_addr target;
-	uint8_t opt_type;
-	uint8_t opt_len;
-  /* FIXME:  hack alert */
-	uint8_t opt_ll_addr[6];
 };
 
 #define ICMP6_FLAGS_ROUTER 0x80
@@ -85,5 +64,7 @@ int icmp6_rx ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src,
 	       uint16_t pshdr_csum );
 
 int icmp6_send_solicit ( struct net_device *netdev, struct in6_addr *src, struct in6_addr *dest );
+
+int icmp6_send_advert ( struct net_device *netdev, struct in6_addr *src, struct in6_addr *dest );
 
 #endif /* _GPXE_ICMP6_H */
