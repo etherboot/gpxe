@@ -334,6 +334,7 @@ static int dns_xfer_deliver_raw ( struct xfer_interface *socket,
 	const struct dns_header *reply = data;
 	union dns_rr_info *rr_info;
 	struct sockaddr_in *sin;
+	struct sockaddr_in6 *sin6;
 	unsigned int qtype = dns->qinfo->qtype;
 
 	/* Sanity check */
@@ -399,6 +400,19 @@ static int dns_xfer_deliver_raw ( struct xfer_interface *socket,
 				return 0;
 			}
 			break;
+		
+		case htons ( DNS_TYPE_AAAA ):
+
+			/* Found the target AAAA record */
+			DBGC ( dns, "DNS %p found address %s\n",
+			       dns, inet6_ntoa ( rr_info->aaaa.in6_addr ) );
+			sin6 = ( struct sockaddr_in6 * ) &dns->sa;
+			sin6->sin_family = AF_INET6;
+			sin6->sin6_addr = rr_info->aaaa.in6_addr;
+
+			/* Mark operation as complete */
+			dns_done ( dns, 0 );
+			return 0;
 
 		default:
 			DBGC ( dns, "DNS %p got unknown record type %d\n",
@@ -414,19 +428,28 @@ static int dns_xfer_deliver_raw ( struct xfer_interface *socket,
 
 	case htons ( DNS_TYPE_A ):
 		/* We asked for an A record and got nothing;
+		 * try the AAAA record.
+		 */
+		DBGC ( dns, "DNS %p found no A record; trying AAAA\n", dns );
+		dns->qinfo->qtype = htons ( DNS_TYPE_AAAA );
+		dns_send_packet ( dns );
+		return 0;
+
+	case htons ( DNS_TYPE_AAAA ):
+		/* We asked for an AAAA record and got nothing;
 		 * try the CNAME.
 		 */
-		DBGC ( dns, "DNS %p found no A record; trying CNAME\n", dns );
+		DBGC ( dns, "DNS %p found no AAAA record; trying CNAME\n", dns );
 		dns->qinfo->qtype = htons ( DNS_TYPE_CNAME );
 		dns_send_packet ( dns );
 		return 0;
 
 	case htons ( DNS_TYPE_CNAME ):
 		/* We asked for a CNAME record.  If we got a response
-		 * (i.e. if the next A query is already set up), then
+		 * (i.e. if the next AAAA query is already set up), then
 		 * issue it, otherwise abort.
 		 */
-		if ( dns->qinfo->qtype == htons ( DNS_TYPE_A ) ) {
+		if ( dns->qinfo->qtype == htons ( DNS_TYPE_AAAA ) ) {
 			dns_send_packet ( dns );
 			return 0;
 		} else {
