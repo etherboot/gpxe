@@ -192,7 +192,7 @@ static int ipv6_tx ( struct io_buffer *iobuf,
 		     struct net_device *netdev,
 		     uint16_t *trans_csum ) {
 	struct sockaddr_in6 *dest = ( struct sockaddr_in6* ) st_dest;
-	struct in6_addr next_hop;
+	struct in6_addr next_hop, gateway = ip6_none;
 	struct ipv6_miniroute *miniroute;
 	uint8_t ll_dest_buf[MAX_LL_ADDR_LEN], ip1, ip2;
 	const uint8_t *ll_dest = ll_dest_buf;
@@ -244,7 +244,7 @@ static int ipv6_tx ( struct io_buffer *iobuf,
 			rc = 0;
 			
 			/* Handle extra bits in the prefix. */
-			if ( ( miniroute->prefix_len % 2 ) ||
+			if ( ( miniroute->prefix_len % 8 ) ||
 			     ( miniroute->prefix_len < 8 ) ) {
 				DBG ( "ipv6: prefix is not aligned to a byte.\n" );
 			
@@ -267,22 +267,27 @@ static int ipv6_tx ( struct io_buffer *iobuf,
 		if( rc == 0 ) {
 			netdev = miniroute->netdev;
 			ip6hdr->src = miniroute->address;
-			if ( ! ( IS_UNSPECIFIED ( miniroute->gateway ) ) ) {
-				DBG ( "    (via %s)\n", inet6_ntoa ( miniroute->gateway ) );
-				next_hop = miniroute->gateway;
-			}
 			break;
+		}
+		
+		if ( ( ! ( IP6_EQUAL ( miniroute->gateway, ip6_none ) ) ) &&
+		     ( IP6_EQUAL ( gateway, ip6_none ) ) ) {
+			netdev = miniroute->netdev;
+			ip6hdr->src = miniroute->address;
+			gateway = miniroute->gateway;
 		}
 	}
 	/* No network interface identified */
-	if ( !netdev ) {
+	if ( ( ! netdev ) ) {
 		DBG ( "No route to host %s\n", inet6_ntoa ( ip6hdr->dest ) );
 		rc = -ENETUNREACH;
 		goto err;
+	} else if ( ! IP6_EQUAL ( gateway, ip6_none ) ) {
+		next_hop = gateway;
 	}
 	
 	/* Add the next hop to the packet. */
-	ip6hdr->dest = next_hop;
+	ip6hdr->dest = dest->sin6_addr;
 
 	/* Complete the transport layer checksum */
 	if ( trans_csum )
