@@ -206,8 +206,17 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 	        rc = 0;
 	        }
 	        break;
-        default:
-		DBG ( "unhandled ndp option %d\n", options->type );
+	case NDP_OPTION_SOURCE_LL:
+		{
+	        struct ll_option *opt = (struct ll_option *) options;
+	        
+		/* Add entry in the neighbour cache for the router */
+		if ( ! ndp_find_entry ( &router_addr ) ) {
+			add_ndp_entry ( netdev, &router_addr, opt->address, NDP_STATE_REACHABLE );
+		}
+		
+		}
+		break;
 	    }
 
 	    offset += options->length * 8;
