@@ -4,12 +4,13 @@
 #include <stdint.h>
 #include <byteswap.h>
 #include <string.h>
-#include <gpxe/icmp6.h>
 #include <gpxe/ip6.h>
 #include <gpxe/in.h>
 #include <gpxe/netdevice.h>
 #include <gpxe/iobuf.h>
 #include <gpxe/tcpip.h>
+
+struct icmp6_net_protocol;
 
 #define NDP_STATE_INVALID 0
 #define NDP_STATE_INCOMPLETE 1

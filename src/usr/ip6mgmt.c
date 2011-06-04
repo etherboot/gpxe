@@ -24,6 +24,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #include <gpxe/netdevice.h>
 #include <gpxe/in.h>
 #include <gpxe/ip6.h>
+#include <gpxe/icmp6.h>
 #include <gpxe/monojob.h>
 #include <gpxe/process.h>
 #include <usr/ifmgmt.h>
@@ -77,6 +78,9 @@ int ip6_autoconf ( struct net_device *netdev ) {
 	
 	/* Add as a route. */
 	add_ipv6_address ( netdev, ip6addr, 10, ip6addr, ip6zero );
+	
+	/* Solicit routers on the network. */
+	icmp6_send_rsolicit ( netdev );
 	
 	return 0;
 }
