@@ -169,58 +169,59 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 	/* Parse options. */
 	while ( offset < iob_len( iobuf ) ) {
 
-	    switch ( options->type ) {
-	    case NDP_OPTION_PREFIX_INFO:
-	        {
-	        struct prefix_option *opt = (struct prefix_option *) options;
+		switch ( options->type ) {
+		case NDP_OPTION_PREFIX_INFO:
+			{
+			struct prefix_option *opt = (struct prefix_option *) options;
 
-	        prefix_len = opt->prefix_len;
+			prefix_len = opt->prefix_len;
 
-	        if ( prefix_len % 8 ) {
-			/* FIXME: non-aligned prefixes unhandled */
-			DBG ( "ndp: prefix length is unaligned, connectivity may suffer.\n" );
-	        }
+			if ( prefix_len % 8 ) {
+				/* FIXME: non-aligned prefixes unhandled */
+				DBG ( "ndp: prefix length is unaligned, connectivity may suffer.\n" );
+			}
 
-	        if ( prefix_len > 64 ) {
-			/* > 64-bit prefix shouldn't happen. */
-			DBG ( "ndp: prefix length is quite long, connectivity may suffer.\n" );
-	        }
+			if ( prefix_len > 64 ) {
+				/* > 64-bit prefix shouldn't happen. */
+				DBG ( "ndp: prefix length is quite long, connectivity may suffer.\n" );
+			}
 
-		/* Create an IPv6 address for this station based on the prefix. */
-		ll_size = netdev->ll_protocol->ll_addr_len;
-		if ( ll_size < 6 ) {
-			memcpy ( host_addr.s6_addr + (8 - ll_size), netdev->ll_addr, ll_size );
-		} else {
-			/* Create an EUI-64 identifier. */
-			memcpy( host_addr.s6_addr + 8, netdev->ll_addr, 3 );
-			memcpy( host_addr.s6_addr + 8 + 5, netdev->ll_addr + 3, 3 );
-			host_addr.s6_addr[11] = 0xFF;
-			host_addr.s6_addr[12] = 0xFE;
+			/* Create an IPv6 address for this station based on the prefix. */
+			ll_size = netdev->ll_protocol->ll_addr_len;
+			if ( ll_size < 6 ) {
+				memcpy ( host_addr.s6_addr + (8 - ll_size), netdev->ll_addr, ll_size );
+			} else {
+				/* Create an EUI-64 identifier. */
+				memcpy( host_addr.s6_addr + 8, netdev->ll_addr, 3 );
+				memcpy( host_addr.s6_addr + 8 + 5, netdev->ll_addr + 3, 3 );
+				host_addr.s6_addr[11] = 0xFF;
+				host_addr.s6_addr[12] = 0xFE;
 
-			/* Designate that this is in fact an EUI-64. */
-			host_addr.s6_addr[8] |= 0x2;
+				/* Designate that this is in fact an EUI-64. */
+				host_addr.s6_addr[8] |= 0x2;
+			}
+
+			memcpy( &host_addr.s6_addr, opt->prefix, prefix_len / 8 );
+
+			rc = 0;
+			}
+			break;
+
+		case NDP_OPTION_SOURCE_LL:
+			{
+			struct ll_option *opt = (struct ll_option *) options;
+
+			/* Add entry in the neighbour cache for the router */
+			if ( ! ndp_find_entry ( &router_addr ) ) {
+				add_ndp_entry ( netdev, &router_addr, opt->address, NDP_STATE_REACHABLE );
+			}
+
+			}
+			break;
 		}
 
-	        memcpy( &host_addr.s6_addr, opt->prefix, prefix_len / 8 );
-
-	        rc = 0;
-	        }
-	        break;
-	case NDP_OPTION_SOURCE_LL:
-		{
-	        struct ll_option *opt = (struct ll_option *) options;
-	        
-		/* Add entry in the neighbour cache for the router */
-		if ( ! ndp_find_entry ( &router_addr ) ) {
-			add_ndp_entry ( netdev, &router_addr, opt->address, NDP_STATE_REACHABLE );
-		}
-		
-		}
-		break;
-	    }
-
-	    offset += options->length * 8;
-	    options = (struct ndp_option *) (iobuf->data + offset);
+		offset += options->length * 8;
+		options = (struct ndp_option *) (iobuf->data + offset);
 	}
 
 	if ( rc ) {
@@ -230,7 +231,7 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 
 	/* Configure a route based on this router if none exists. */
 	if ( net_protocol->check ( netdev, &host_addr ) ) {
-	        DBG ( "ndp: autoconfigured %s/%d via a router advertisement\n", inet6_ntoa( host_addr ), prefix_len);
+		DBG ( "ndp: autoconfigured %s/%d via a router advertisement\n", inet6_ntoa( host_addr ), prefix_len);
 
 		add_ipv6_address ( netdev, host_addr, prefix_len, host_addr, router_addr );
 	}
