@@ -212,6 +212,11 @@ static int ipv6_tx ( struct io_buffer *iobuf,
 	/* Determine the next hop address and interface. */
 	next_hop = dest->sin6_addr;
 	list_for_each_entry ( miniroute, &miniroutes, list ) {
+		/* Check for specific netdev */
+		if ( netdev && ( miniroute->netdev != netdev ) ) {
+			continue;
+		}
+		
 		/* Link-local route? */
 		linklocal = (miniroute->address.in6_u.u6_addr16[0] & htons(0xFE80)) == htons(0xFE80);
 
