@@ -177,14 +177,17 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 			prefix_len = opt->prefix_len;
 
 			if ( prefix_len % 8 ) {
-				/* FIXME: non-aligned prefixes unhandled */
-				DBG ( "ndp: prefix length is unaligned, connectivity may suffer.\n" );
+				/* Copy one extra prefix byte. */
+				prefix_len += 8;
 			}
 
 			if ( prefix_len > 64 ) {
 				/* > 64-bit prefix shouldn't happen. */
 				DBG ( "ndp: prefix length is quite long, connectivity may suffer.\n" );
 			}
+
+			/* Copy the prefix first and then add the EUI-64 */
+			memcpy( &host_addr.s6_addr, opt->prefix, prefix_len / 8 );
 
 			/* Create an IPv6 address for this station based on the prefix. */
 			ll_size = netdev->ll_protocol->ll_addr_len;
@@ -193,8 +196,6 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 			} else {
 				ipv6_generate_eui64 ( host_addr.s6_addr + 8, netdev->ll_addr );
 			}
-
-			memcpy( &host_addr.s6_addr, opt->prefix, prefix_len / 8 );
 
 			rc = 0;
 			}
