@@ -329,13 +329,14 @@ static int ipv6_tx ( struct io_buffer *iobuf,
  * @v nxt_hdr	Next header number
  * @v src	Source socket address
  * @v dest	Destination socket address
+ * @v netdev	Net device the packet arrived on
  * @v phcsm Partial checksum over the IPv6 psuedo-header.
  *
  * Refer http://www.iana.org/assignments/ipv6-parameters for the numbers
  */
 static int ipv6_process_nxt_hdr ( struct io_buffer *iobuf, uint8_t nxt_hdr,
 		struct sockaddr_tcpip *src, struct sockaddr_tcpip *dest,
-		uint16_t phcsm ) {
+		struct net_device *netdev, uint16_t phcsm ) {
 	switch ( nxt_hdr ) {
 	case IP6_HOPBYHOP:
 	case IP6_ROUTING:
@@ -346,7 +347,7 @@ static int ipv6_process_nxt_hdr ( struct io_buffer *iobuf, uint8_t nxt_hdr,
 		DBG ( "Function not implemented for header %d\n", nxt_hdr );
 		return -ENOSYS;
 	case IP6_ICMP6:
-		break;
+		return icmp6_rx ( iobuf, src, dest, netdev, phcsm );
 	case IP6_NO_HEADER:
 		DBG ( "No next header\n" );
 		return 0;
@@ -418,7 +419,7 @@ static int ipv6_rx ( struct io_buffer *iobuf,
 
 	/* Send it to the transport layer */
 	return ipv6_process_nxt_hdr ( iobuf, ip6hdr->nxt_hdr, &src.st, &dest.st,
-				      phcsm );
+				      netdev, phcsm );
 
   drop:
 	DBG ( "IP6 packet dropped\n" );

@@ -67,8 +67,9 @@ int icmp6_send_solicit ( struct net_device *netdev, struct in6_addr *src __unuse
  * @v st_src	Source address
  * @v st_dest	Destination address
  */
-static int icmp6_rx ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src,
-		      struct sockaddr_tcpip *st_dest, __unused uint16_t pshdr_csum ) {
+int icmp6_rx ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src,
+	       struct sockaddr_tcpip *st_dest, struct net_device *netdev __unused,
+	       uint16_t pshdr_csum __unused ) {
 	struct icmp6_header *icmp6hdr = iobuf->data;
 
 	/* Sanity check */
@@ -116,9 +117,10 @@ void icmp6_test_nadvert (struct net_device *netdev, struct sockaddr_in6 *server_
 }
 #endif
 
-/** ICMP6 protocol */
+/** ICMP6 protocol (needed for ipv6_tx) */
 struct tcpip_protocol icmp6_protocol __tcpip_protocol = {
 	.name = "ICMP6",
-	.rx = icmp6_rx,
+	.rx = NULL, /* icmp6_rx if tcpip passes netdev in future */
 	.tcpip_proto = IP_ICMP6, // 58
 };
+

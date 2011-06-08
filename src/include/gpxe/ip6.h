@@ -55,12 +55,12 @@ struct ipv6_pseudo_header {
 
 /* Next header numbers */
 #define IP6_HOPBYHOP 		0x00
+#define IP6_ICMP6		0x3A
 #define IP6_ROUTING 		0x43
 #define IP6_FRAGMENT		0x44
 #define IP6_AUTHENTICATION	0x51
 #define IP6_DEST_OPTS		0x60
 #define IP6_ESP			0x50
-#define IP6_ICMP6		0x58
 #define IP6_NO_HEADER		0x59
 
 struct io_buffer;

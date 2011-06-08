@@ -54,6 +54,10 @@ struct neighbour_advert {
 #define ICMP6_FLAGS_SOLICITED 0x40
 #define ICMP6_FLAGS_OVERRIDE 0x20
 
+int icmp6_rx ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src,
+	       struct sockaddr_tcpip *st_dest, struct net_device *netdev,
+	       uint16_t pshdr_csum );
+
 int icmp6_send_solicit ( struct net_device *netdev, struct in6_addr *src, struct in6_addr *dest );
 
 #endif /* _GPXE_ICMP6_H */
