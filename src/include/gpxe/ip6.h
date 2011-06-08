@@ -72,6 +72,8 @@ extern struct tcpip_net_protocol ipv6_tcpip_protocol;
 extern char * inet6_ntoa ( struct in6_addr in6 );
 extern int inet6_aton ( const char *cp, struct in6_addr *inp );
 
+void ipv6_generate_eui64 ( uint8_t *out, uint8_t *ll );
+
 extern int add_ipv6_address ( struct net_device *netdev,
 			      struct in6_addr prefix, int prefix_len,
 			      struct in6_addr address,

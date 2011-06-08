@@ -46,6 +46,26 @@ struct ipv6_miniroute {
 static LIST_HEAD ( miniroutes );
 
 /**
+ * Generate an EUI-64 from a given link-local address.
+ *
+ * @v out		pointer to buffer to receive the EUI-64
+ * @v ll		pointer to buffer containing the link-local address
+ */
+void ipv6_generate_eui64 ( uint8_t *out, uint8_t *ll ) {
+	assert ( out != 0 );
+	assert ( ll != 0 );
+	
+	/* Create an EUI-64 identifier. */
+	memcpy( out, ll, 3 );
+	memcpy( out + 5, ll + 3, 3 );
+	out[3] = 0xFF;
+	out[4] = 0xFE;
+	
+	/* Designate that this is in fact an EUI-64. */
+	out[0] |= 0x2;
+}
+
+/**
  * Add IPv6 minirouting table entry
  *
  * @v netdev		Network device

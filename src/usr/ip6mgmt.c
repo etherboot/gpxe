@@ -57,14 +57,7 @@ int ip6_autoconf ( struct net_device *netdev ) {
 	if ( ll_size < 6 ) {
 		memcpy ( ip6addr.s6_addr + (8 - ll_size), netdev->ll_addr, ll_size );
 	} else {
-		/* Create an EUI-64 identifier. */
-		memcpy( ip6addr.s6_addr + 8, netdev->ll_addr, 3 );
-		memcpy( ip6addr.s6_addr + 8 + 5, netdev->ll_addr + 3, 3 );
-		ip6addr.s6_addr[11] = 0xFF;
-		ip6addr.s6_addr[12] = 0xFE;
-		
-		/* Designate that this is in fact an EUI-64. */
-		ip6addr.s6_addr[8] |= 0x2;
+		ipv6_generate_eui64 ( ip6addr.s6_addr + 8, netdev->ll_addr );
 	}
 	
 	/* Fill in the link-local prefix. */

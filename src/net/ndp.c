@@ -191,14 +191,7 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 			if ( ll_size < 6 ) {
 				memcpy ( host_addr.s6_addr + (8 - ll_size), netdev->ll_addr, ll_size );
 			} else {
-				/* Create an EUI-64 identifier. */
-				memcpy( host_addr.s6_addr + 8, netdev->ll_addr, 3 );
-				memcpy( host_addr.s6_addr + 8 + 5, netdev->ll_addr + 3, 3 );
-				host_addr.s6_addr[11] = 0xFF;
-				host_addr.s6_addr[12] = 0xFE;
-
-				/* Designate that this is in fact an EUI-64. */
-				host_addr.s6_addr[8] |= 0x2;
+				ipv6_generate_eui64 ( host_addr.s6_addr + 8, netdev->ll_addr );
 			}
 
 			memcpy( &host_addr.s6_addr, opt->prefix, prefix_len / 8 );
