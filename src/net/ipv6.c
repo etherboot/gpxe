@@ -66,6 +66,46 @@ void ipv6_generate_eui64 ( uint8_t *out, uint8_t *ll ) {
 }
 
 /**
+ * Verifies that a prefix matches another one.
+ *
+ * @v p1		first prefix
+ * @v p2		second prefix
+ * @v len		prefix length in bits to compare
+ * @ret int		0 if a match, nonzero otherwise
+ */
+int ipv6_match_prefix ( struct in6_addr *p1, struct in6_addr *p2, size_t len ) {
+	uint8_t ip1, ip2;
+	size_t offset, bits;
+	int rc = 0;
+
+	/* Check for a prefix match on the route. */
+	if ( ! memcmp ( p1, p2, len / 8 ) ) {
+		rc = 0;
+
+		/* Handle extra bits in the prefix. */
+		if ( ( len % 8 ) ||
+		     ( len < 8 ) ) {
+			DBG ( "ipv6: prefix is not aligned to a byte.\n" );
+
+			/* Compare the remaining bits. */
+			offset = len / 8;
+			bits = len % 8;
+
+			ip1 = p1->in6_u.u6_addr8[offset];
+			ip2 = p2->in6_u.u6_addr8[offset];
+			if ( ! ( ( ip1 & (0xFF >> (8 - bits)) ) &
+			     ( ip2 ) ) ) {
+				rc = 1;
+			}
+		}
+	} else {
+		rc = 1;
+	}
+
+	return rc;
+}
+
+/**
  * Add IPv6 minirouting table entry
  *
  * @v netdev		Network device
@@ -214,9 +254,9 @@ static int ipv6_tx ( struct io_buffer *iobuf,
 	struct sockaddr_in6 *dest = ( struct sockaddr_in6* ) st_dest;
 	struct in6_addr next_hop, gateway = ip6_none;
 	struct ipv6_miniroute *miniroute;
-	uint8_t ll_dest_buf[MAX_LL_ADDR_LEN], ip1, ip2;
+	uint8_t ll_dest_buf[MAX_LL_ADDR_LEN];
 	const uint8_t *ll_dest = ll_dest_buf;
-	int rc, multicast, linklocal, bits, offset;
+	int rc, multicast, linklocal;
 	
 	/* Check for multicast transmission. */
 	multicast = dest->sin6_addr.in6_u.u6_addr8[0] == 0xFF;
@@ -265,28 +305,7 @@ static int ipv6_tx ( struct io_buffer *iobuf,
 		}
 		
 		/* Check for a prefix match on the route. */
-		if ( ! memcmp ( &next_hop, &miniroute->prefix, miniroute->prefix_len / 8 ) ) {
-			rc = 0;
-			
-			/* Handle extra bits in the prefix. */
-			if ( ( miniroute->prefix_len % 8 ) ||
-			     ( miniroute->prefix_len < 8 ) ) {
-				DBG ( "ipv6: prefix is not aligned to a byte.\n" );
-			
-				/* Compare the remaining bits. */
-				offset = miniroute->prefix_len / 8;
-				bits = miniroute->prefix_len % 8;
-				
-				ip1 = next_hop.in6_u.u6_addr8[offset];
-				ip2 = miniroute->prefix.in6_u.u6_addr8[offset];
-				if ( ! ( ( ip1 & (0xFF >> (8 - bits)) ) &
-				     ( ip2 ) ) ) {
-					rc = 1;
-				}
-			}
-		} else {
-			rc = 1;
-		}
+		rc = ipv6_match_prefix ( &next_hop, &miniroute->prefix, miniroute->prefix_len );
 		
 		/* Matched? */
 		if( rc == 0 ) {

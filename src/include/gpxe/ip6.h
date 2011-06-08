@@ -74,6 +74,8 @@ extern int inet6_aton ( const char *cp, struct in6_addr *inp );
 
 void ipv6_generate_eui64 ( uint8_t *out, uint8_t *ll );
 
+int ipv6_match_prefix ( struct in6_addr *p1, struct in6_addr *p2, size_t len );
+
 extern int add_ipv6_address ( struct net_device *netdev,
 			      struct in6_addr prefix, int prefix_len,
 			      struct in6_addr address,
