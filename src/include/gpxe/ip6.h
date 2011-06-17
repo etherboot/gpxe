@@ -11,6 +11,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 
 #include <stdint.h>
 #include <gpxe/in.h>
+#include <gpxe/tcpip.h>
 
 /* IP6 constants */
 
@@ -81,5 +82,12 @@ extern int add_ipv6_address ( struct net_device *netdev,
 			      struct in6_addr address,
 			      struct in6_addr gateway );
 extern void del_ipv6_address ( struct net_device *netdev );
+
+extern int ipv6_tx ( struct io_buffer *iobuf,
+		     struct tcpip_protocol *tcpip,
+		     struct sockaddr_tcpip *st_src,
+		     struct sockaddr_tcpip *st_dest,
+		     struct net_device *netdev,
+		     uint16_t *trans_csum );
 
 #endif /* _GPXE_IP6_H */

@@ -63,8 +63,8 @@ int icmp6_send_solicit ( struct net_device *netdev, struct in6_addr *src __unuse
 	st_dest.sin6.sin6_addr.in6_u.u6_addr8[15] = 0x1;
 
 	/* Send packet over IP6 */
-	return tcpip_tx ( iobuf, &icmp6_protocol, NULL, &st_dest.st,
-			  netdev, &nsolicit->csum );
+	return ipv6_tx ( iobuf, &icmp6_protocol, NULL, &st_dest.st,
+			 netdev, &nsolicit->csum );
 }
 
 /**
@@ -105,8 +105,8 @@ int icmp6_send_rsolicit ( struct net_device *netdev ) {
 	st_dest.sin6.sin6_addr.in6_u.u6_addr8[15] = 0x2;
 
 	/* Send packet over IP6 */
-	return tcpip_tx ( iobuf, &icmp6_protocol, NULL, &st_dest.st,
-			  netdev, &solicit->csum );
+	return ipv6_tx ( iobuf, &icmp6_protocol, NULL, &st_dest.st,
+			 netdev, &solicit->csum );
 }
 
 /**
@@ -155,8 +155,8 @@ int icmp6_send_advert ( struct net_device *netdev, struct in6_addr *src,
 	st_dest.sin6.sin6_addr = *dest;
 
 	/* Send packet over IP6 */
-	return tcpip_tx ( iobuf, &icmp6_protocol, NULL, &st_dest.st,
-			  NULL, &nadvert->csum );
+	return ipv6_tx ( iobuf, &icmp6_protocol, NULL, &st_dest.st,
+			 NULL, &nadvert->csum );
 }
 
 /**
@@ -179,8 +179,8 @@ int icmp6_handle_echo ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src,
 	icmp6hdr->csum = tcpip_chksum ( icmp6hdr, len );
 
 	/* Transmit the response */
-	if ( ( rc = tcpip_tx ( iob_disown ( iobuf ), &icmp6_protocol, st_dest,
-			       st_src, NULL, &icmp6hdr->csum ) ) != 0 ) {
+	if ( ( rc = ipv6_tx ( iob_disown ( iobuf ), &icmp6_protocol, st_dest,
+			      st_src, NULL, &icmp6hdr->csum ) ) != 0 ) {
 		DBG ( "ICMP could not transmit ping response: %s\n",
 		      strerror ( rc ) );
 	}
