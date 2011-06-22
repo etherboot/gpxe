@@ -216,7 +216,7 @@ static uint16_t ipv6_tx_csum ( struct io_buffer *iobuf, uint16_t csum ) {
 	memset ( &pshdr, 0, sizeof ( pshdr ) );
 	pshdr.src = ip6hdr->src;
 	pshdr.dest = ip6hdr->dest;
-	pshdr.len = htons ( iob_len ( iobuf ) - sizeof ( *ip6hdr ) );
+	pshdr.len = ip6hdr->payload_len;
 	pshdr.nxt_hdr = ip6hdr->nxt_hdr;
 
 	/* Update checksum value */
@@ -411,7 +411,6 @@ static int ipv6_process_nxt_hdr ( struct io_buffer *iobuf, uint8_t nxt_hdr,
 static int ipv6_rx ( struct io_buffer *iobuf,
 		     __unused struct net_device *netdev,
 		     __unused const void *ll_source ) {
-
 	struct ip6_header *ip6hdr = iobuf->data;
 	union {
 		struct sockaddr_in6 sin6;
