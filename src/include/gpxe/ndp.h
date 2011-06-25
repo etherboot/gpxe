@@ -11,6 +11,7 @@
 #include <gpxe/tcpip.h>
 
 struct icmp6_net_protocol;
+struct job_interface;
 
 #define NDP_STATE_INVALID 0
 #define NDP_STATE_INCOMPLETE 1
@@ -18,6 +19,15 @@ struct icmp6_net_protocol;
 #define NDP_STATE_DELAY 3
 #define NDP_STATE_PROBE 4
 #define NDP_STATE_STALE 5
+
+#define RSOLICIT_STATE_INVALID	0
+#define RSOLICIT_STATE_PENDING	1
+#define RSOLICIT_STATE_COMPLETE	2
+#define RSOLICIT_STATE_ALMOST	3
+
+#define RSOLICIT_CODE_NONE	0
+#define RSOLICIT_CODE_MANAGED	1
+#define RSOLICIT_CODE_OTHERCONF	2
 
 #define NDP_OPTION_SOURCE_LL        1
 #define NDP_OPTION_TARGET_LL        2
@@ -89,6 +99,8 @@ struct prefix_option
 
 int ndp_resolve ( struct net_device *netdev, struct in6_addr *src,
 		  struct in6_addr *dest, void *dest_ll_addr );
+
+int ndp_send_rsolicit ( struct net_device *netdev, struct job_interface *job );
 
 int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src,
 			  struct sockaddr_tcpip *st_dest, struct net_device *netdev,

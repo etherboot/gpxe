@@ -68,48 +68,6 @@ int icmp6_send_solicit ( struct net_device *netdev, struct in6_addr *src __unuse
 }
 
 /**
- * Send router solicitation packet
- *
- * @v netdev	Network device
- * @v src	Source address
- * @v dest	Destination address
- *
- * This function prepares a neighbour solicitation packet and sends it to the
- * network layer.
- */
-int icmp6_send_rsolicit ( struct net_device *netdev ) {
-	union {
-		struct sockaddr_in6 sin6;
-		struct sockaddr_tcpip st;
-	} st_dest;
-	struct router_solicit *solicit;
-	struct io_buffer *iobuf = alloc_iob ( sizeof ( *solicit ) + MIN_IOB_LEN );
-	
-	iob_reserve ( iobuf, MAX_HDR_LEN );
-	solicit = iob_put ( iobuf, sizeof ( *solicit ) );
-
-	/* Fill up the headers */
-	memset ( solicit, 0, sizeof ( *solicit ) );
-	solicit->type = ICMP6_ROUTER_SOLICIT;
-	solicit->code = 0;
-	
-	/* Partial checksum */
-	solicit->csum = 0;
-	solicit->csum = tcpip_chksum ( solicit, sizeof ( *solicit ) );
-
-	/* Solicited multicast address - FF02::2 (all routers on local network) */
-	memset(&st_dest.sin6, 0, sizeof(st_dest.sin6));
-	st_dest.sin6.sin_family = AF_INET6;
-	st_dest.sin6.sin6_addr.in6_u.u6_addr8[0] = 0xff;
-	st_dest.sin6.sin6_addr.in6_u.u6_addr8[1] = 0x2;
-	st_dest.sin6.sin6_addr.in6_u.u6_addr8[15] = 0x2;
-
-	/* Send packet over IP6 */
-	return ipv6_tx ( iobuf, &icmp6_protocol, NULL, &st_dest.st,
-			 netdev, &solicit->csum );
-}
-
-/**
  * Send neighbour advertisement packet
  *
  * @v netdev	Network device

@@ -73,8 +73,22 @@ int ip6_autoconf ( struct net_device *netdev ) {
 	add_ipv6_address ( netdev, ip6addr, 10, ip6addr, ip6zero );
 	
 	/* Solicit routers on the network. */
-	icmp6_send_rsolicit ( netdev );
+	if ( ( rc = ndp_send_rsolicit ( netdev, &monojob ) ) == 0 ) {
+		rc = monojob_wait ( "" );
+	}
 	
-	return 0;
+	if ( rc < 0 ) {
+		DBG ( "ipv6: router solicitation failed\n" );
+	} else {
+		if ( rc & RSOLICIT_CODE_MANAGED ) {
+			DBG ( "ipv6: should use dhcp6 server\n" );
+		} else if ( rc & RSOLICIT_CODE_OTHERCONF ) {
+			DBG ( "ipv6: some more info is available via dhcp6\n" );
+		} else {
+			DBG ( "ipv6: autoconfiguration complete\n" );
+		}
+	}
+	
+	return rc;
 }
 

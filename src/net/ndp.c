@@ -9,6 +9,7 @@
 #include <gpxe/icmp6.h>
 #include <gpxe/ip6.h>
 #include <gpxe/netdevice.h>
+#include <gpxe/job.h>
 
 /** @file
  *
@@ -31,6 +32,20 @@ struct ndp_entry {
 	int state;
 };
 
+/** A pending router solicitation. */
+struct pending_rsolicit {
+	/** Network device for the solicit. */
+	struct net_device *netdev;
+	/** State of the solicitation. */
+	int state;
+	/** Status code after handling the solicit. */
+	int code;
+	/** Job control interface */
+	struct job_interface job;
+	/** Reference counter */
+	struct refcnt refcnt;
+};
+
 /** Number of entries in the neighbour cache table */
 #define NUM_NDP_ENTRIES 4
 
@@ -39,6 +54,37 @@ static struct ndp_entry ndp_table[NUM_NDP_ENTRIES];
 #define ndp_table_end &ndp_table[NUM_NDP_ENTRIES]
 
 static unsigned int next_new_ndp_entry = 0;
+
+/** The pending solicit table */
+static struct pending_rsolicit solicit_table[NUM_NDP_ENTRIES];
+#define solicit_table_end &solicit_table[NUM_NDP_ENTRIES]
+
+static unsigned int next_new_solicit_entry = 0;
+
+/**
+ * Handle kill() event received via job control interface
+ *
+ * @v job		Router solicit job control interface
+ */
+static void rsolicit_job_kill ( struct job_interface *job ) {
+	struct pending_rsolicit *entry =
+		container_of ( job, struct pending_rsolicit, job );
+
+	/* Terminate. */
+	entry->code = 0;
+	entry->state = RSOLICIT_STATE_INVALID;
+	
+	/* Clean up. */
+	job_nullify ( &entry->job );
+	job_done ( &entry->job, -ECANCELED );
+}
+
+/** Router solicit job control interface operations */
+static struct job_interface_operations rsolicit_job_operations = {
+	.done		= ignore_job_done,
+	.kill		= rsolicit_job_kill,
+	.progress	= ignore_job_progress,
+};
 
 /**
  * Find entry in the neighbour cache
@@ -53,6 +99,24 @@ ndp_find_entry ( struct in6_addr *in6 ) {
 		if ( IP6_EQUAL ( ( *in6 ), ndp->in6 ) &&
 		     ( ndp->state != NDP_STATE_INVALID ) ) {
 			return ndp;
+		}
+	}
+	return NULL;
+}
+
+/**
+ * Find a pending router solicitation for an interface.
+ *
+ * @v netdev	Interface for the solicitation.
+ */
+static struct pending_rsolicit *
+solicit_find_entry ( struct net_device *netdev ) {
+	struct pending_rsolicit *entry;
+
+	for ( entry = solicit_table ; entry < solicit_table_end ; entry++ ) {
+		if ( ( entry->netdev == netdev ) &&
+		     ( entry->state == RSOLICIT_STATE_PENDING ) ) {
+			return entry;
 		}
 	}
 	return NULL;
@@ -84,6 +148,25 @@ add_ndp_entry ( struct net_device *netdev, struct in6_addr *in6,
 	DBG ( "New neighbour cache entry: IP6 %s => %s %s\n",
 	      inet6_ntoa ( ndp->in6 ), netdev->ll_protocol->name,
 	      netdev->ll_protocol->ntoa ( ndp->ll_addr ) );
+}
+
+/**
+ * Add pending solicit entry
+ * 
+ * @v netdev	Network device
+ * @v state	State of the entry - one of the RSOLICIT_STATE_XXX values
+ */
+static struct pending_rsolicit *
+add_solicit_entry ( struct net_device *netdev, int state ) {
+	struct pending_rsolicit *entry;
+	entry = &solicit_table[next_new_solicit_entry++ % NUM_NDP_ENTRIES];
+
+	/* Fill up entry */
+	entry->netdev = netdev;
+	entry->state = state;
+	entry->code = RSOLICIT_CODE_NONE;
+	
+	return entry;
 }
 
 /**
@@ -141,6 +224,71 @@ int ndp_resolve ( struct net_device *netdev, struct in6_addr *dest,
 }
 
 /**
+ * Send router solicitation packet
+ *
+ * @v netdev	Network device
+ * @v src	Source address
+ * @v dest	Destination address
+ *
+ * This function prepares a neighbour solicitation packet and sends it to the
+ * network layer.
+ */
+int ndp_send_rsolicit ( struct net_device *netdev, struct job_interface *job ) {
+	union {
+		struct sockaddr_in6 sin6;
+		struct sockaddr_tcpip st;
+	} st_dest;
+	struct router_solicit *solicit;
+	struct io_buffer *iobuf = alloc_iob ( sizeof ( *solicit ) + MIN_IOB_LEN );
+	struct pending_rsolicit *entry;
+	int rc = 0;
+	
+	iob_reserve ( iobuf, MAX_HDR_LEN );
+	solicit = iob_put ( iobuf, sizeof ( *solicit ) );
+
+	/* Fill up the headers */
+	memset ( solicit, 0, sizeof ( *solicit ) );
+	solicit->type = ICMP6_ROUTER_SOLICIT;
+	solicit->code = 0;
+	
+	/* Partial checksum */
+	solicit->csum = 0;
+	solicit->csum = tcpip_chksum ( solicit, sizeof ( *solicit ) );
+
+	/* Solicited multicast address - FF02::2 (all routers on local network) */
+	memset(&st_dest.sin6, 0, sizeof(st_dest.sin6));
+	st_dest.sin6.sin_family = AF_INET6;
+	st_dest.sin6.sin6_addr.in6_u.u6_addr8[0] = 0xff;
+	st_dest.sin6.sin6_addr.in6_u.u6_addr8[1] = 0x2;
+	st_dest.sin6.sin6_addr.in6_u.u6_addr8[15] = 0x2;
+	
+	/* Add an entry for this solicitation. */
+	entry = add_solicit_entry ( netdev, RSOLICIT_STATE_ALMOST );
+	
+	/* Set up a job for the solicit. */
+	job_init ( &entry->job, &rsolicit_job_operations, &entry->refcnt );
+
+	/* Send packet over IP6 */
+	rc = ipv6_tx ( iobuf, &icmp6_protocol, NULL, &st_dest.st,
+		       netdev, &solicit->csum );
+	
+	/* Return. */
+	if ( rc == 0 ) {
+		entry->state = RSOLICIT_STATE_PENDING;
+		
+		job_plug_plug ( &entry->job, job );
+		ref_put ( &entry->refcnt );
+		return 0;
+	} else {
+		entry->state = RSOLICIT_STATE_INVALID;
+		
+		rsolicit_job_kill ( &entry->job );
+		ref_put ( &entry->refcnt );
+		return rc;
+	}
+}
+
+/**
  * Process Router Advertisement
  *
  * @v iobuf I/O buffer containing the data.
@@ -157,13 +305,24 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 	int rc = -ENOENT;
 	uint8_t prefix_len = 0;
 	size_t offset = sizeof ( struct router_advert ), ll_size;
+	
+	/* Verify that there's a pending solicit */
+	struct pending_rsolicit *pending = solicit_find_entry ( netdev );
+	if ( ! pending ) {
+		DBG ( "ndp: unsolicited router advertisement, ignoring\n" );
+		return rc;
+	}
 
 	memset ( &host_addr, 0, sizeof ( host_addr ) );
 
-	/* Verify that we shouldn't be trying DHCPv6 instead. */
+	/* Router advertisement flags */
 	if ( ntohs ( radvert->hops_flags ) & RADVERT_MANAGED ) {
 		DBG ( "ndp: router advertisement suggests DHCPv6\n" );
-		return 0;
+		pending->code |= RSOLICIT_CODE_MANAGED;
+	}
+	if ( ntohs ( radvert->hops_flags ) & RADVERT_OTHERCONF ) {
+		DBG ( "ndp: router advertisement suggests DHCPv6 for additional information\n" );
+		pending->code |= RSOLICIT_CODE_OTHERCONF;
 	}
 
 	/* Parse options. */
@@ -220,6 +379,10 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 
 	if ( rc ) {
 		DBG ( "ndp: couldn't generate a prefix from a router advertisement\n" );
+		pending->code = RSOLICIT_CODE_NONE; /* Clear flags. */
+		
+		job_done ( &pending->job, -ENOENT );
+		
 		return 0;
 	}
 
@@ -228,6 +391,10 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 		DBG ( "ndp: autoconfigured %s/%d via a router advertisement\n", inet6_ntoa( host_addr ), prefix_len);
 
 		add_ipv6_address ( netdev, host_addr, prefix_len, host_addr, router_addr );
+		
+		job_done ( &pending->job, pending->code );
+		
+		pending->state = RSOLICIT_STATE_INVALID;
 	}
 
 	return 0;

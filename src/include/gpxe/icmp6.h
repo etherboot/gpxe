@@ -65,8 +65,6 @@ int icmp6_rx ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src,
 
 int icmp6_send_solicit ( struct net_device *netdev, struct in6_addr *src, struct in6_addr *dest );
 
-int icmp6_send_rsolicit ( struct net_device *netdev );
-
 int icmp6_send_advert ( struct net_device *netdev, struct in6_addr *src, struct in6_addr *dest );
 
 #endif /* _GPXE_ICMP6_H */
