@@ -542,18 +542,12 @@ char * inet6_ntoa ( struct in6_addr in6 ) {
 int inet6_aton ( const char *cp, struct in6_addr *inp ) {
 	char convbuf[40];
 	char *tmp = convbuf, *next = convbuf;
-	size_t i = 0, len = strlen ( cp );
+	size_t i = 0;
 	int ok;
 	char c;
 	
 	/* Verify a valid address. */
-	if ( ! len ) {
-		return 0;
-	}
-	
-	for ( ; i < len; i++ ) {
-		c = cp[i];
-		
+	while ( ( c = cp[i++] ) ) {
 		ok = c == ':';
 		ok = ok || ( ( c >= '0' ) && ( c <= '9' ) );
 		ok = ok || ( ( c >= 'a' ) && ( c <= 'f' ) );
@@ -562,6 +556,9 @@ int inet6_aton ( const char *cp, struct in6_addr *inp ) {
 		if ( ! ok ) {
 			return 0;
 		}
+	}
+	if ( ! i ) {
+		return 0;
 	}
 	
 	strcpy ( convbuf, cp );
