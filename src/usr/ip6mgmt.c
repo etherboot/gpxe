@@ -29,6 +29,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #include <gpxe/process.h>
 #include <usr/ifmgmt.h>
 #include <usr/ip6mgmt.h>
+#include <gpxe/dhcp6.h>
 
 #define LINK_WAIT_MS	15000
 
@@ -88,6 +89,14 @@ int ip6_autoconf ( struct net_device *netdev ) {
 			DBG ( "ipv6: autoconfiguration complete\n" );
 		}
 	}
+	
+	DBG ( "ipv6: testing dhcp6 info-request\n" );
+	start_dhcp6 ( &monojob, netdev, 1 );
+	rc = monojob_wait ( "" );
+	
+	DBG ( "ipv6: testing dhcp6 full-request\n" );
+	start_dhcp6 ( &monojob, netdev, 0 );
+	rc = monojob_wait ( "" );
 	
 	return rc;
 }

@@ -433,6 +433,13 @@ struct socket_opener udp_socket_opener __socket_opener = {
 	.open		= udp_open,
 };
 
+/** UDP over IPv6 socket opener */
+struct socket_opener udp_socket_opener_v6 __socket_opener = {
+	.semantics	= UDP_SOCK_DGRAM,
+	.family		= AF_INET6,
+	.open		= udp_open,
+};
+
 /** Linkage hack */
 int udp_sock_dgram = UDP_SOCK_DGRAM;
 

@@ -12,10 +12,10 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #include <stdint.h>
 
 /** DHCPv6 server port */
-#define DHCP6S_PORT 546
+#define DHCP6S_PORT 547
 
 /** DHCPv6 client port */
-#define DHCP6C_PORT 547
+#define DHCP6C_PORT 546
 
 /** DHCPv6 Status Codes */
 #define DHCP6_SUCCESS	0
@@ -40,7 +40,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 
 /** DHCPv6 message type. DHCPv6 options follow this header. */
 struct dhcp6_msg {
-	uint16_t type_id;
+	uint32_t type_id;
 };
 
 /** DHCP option header type. */
@@ -68,6 +68,9 @@ struct dhcp6_opt_hdr {
 #define DHCP6_OPT_IFACE_ID	18
 #define DHCP6_OPT_RECONF_MSG	19
 #define DHCP6_OPT_RECONF_ACCEPT	20
+
+#define DHCP6_OPT_DNS_SERVERS	23
+#define DHCP6_OPT_DNS_DOMAINS	24
 
 /** Identity association for non-temporary address option */
 struct dhcp6_opt_ia_na {
@@ -201,6 +204,9 @@ struct dhcp6_duid_ll {
 	uint16_t hwtype;
 	/** variable length for link layer address */
 };
+
+/** Start a DHCP6 transaction. */
+int start_dhcp6 ( struct job_interface *job, struct net_device *netdev, int onlyinfo );
 
 #endif
 

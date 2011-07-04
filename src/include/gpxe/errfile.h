@@ -179,6 +179,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #define ERRFILE_wpa_tkip		( ERRFILE_NET | 0x00280000 )
 #define ERRFILE_wpa_ccmp		( ERRFILE_NET | 0x00290000 )
 #define ERRFILE_eth_slow		( ERRFILE_NET | 0x002a0000 )
+#define ERRFILE_dhcp6			( ERRFILE_NET | 0x002b0000 )
 
 #define ERRFILE_image		      ( ERRFILE_IMAGE | 0x00000000 )
 #define ERRFILE_elf		      ( ERRFILE_IMAGE | 0x00010000 )
@@ -213,6 +214,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #define ERRFILE_login_ui	      ( ERRFILE_OTHER | 0x00170000 )
 #define ERRFILE_ib_srpboot	      ( ERRFILE_OTHER | 0x00180000 )
 #define ERRFILE_iwmgmt		      ( ERRFILE_OTHER | 0x00190000 )
+#define ERRFILE_ip6mgmt		      ( ERRFILE_OTHER | 0x001a0000 )
 
 /** @} */
 
