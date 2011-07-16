@@ -18,6 +18,8 @@
 
 struct net_protocol ipv6_protocol;
 
+#define is_linklocal( a ) ( ( (a).in6_u.u6_addr16[0] & htons ( 0xFE80 ) ) == htons ( 0xFE80 ) )
+
 char * inet6_ntoa ( struct in6_addr in6 );
 
 /* Unspecified IP6 address */
@@ -279,13 +281,13 @@ int ipv6_tx ( struct io_buffer *iobuf,
 		}
 		
 		/* Link-local route? */
-		linklocal = (miniroute->address.in6_u.u6_addr16[0] & htons(0xFE80)) == htons(0xFE80);
+		linklocal = is_linklocal ( miniroute->address ); // (.in6_u.u6_addr16[0] & htons(0xFE80)) == htons(0xFE80);
 
 		/* Handle link-local for multicast. */
 		if ( multicast )
 		{
 			/* Link-local scope? */
-			if ( next_hop.in6_u.u6_addr8[0] & 0x2 ) {
+			if ( is_linklocal ( next_hop ) ) { // .in6_u.u6_addr8[0] & 0x2 ) {
 				if ( linklocal ) {
 					netdev = miniroute->netdev;
 					ip6hdr->src = miniroute->address;
@@ -295,13 +297,12 @@ int ipv6_tx ( struct io_buffer *iobuf,
 					continue;
 				}
 			} else {
-				/* Can we route on this interface?
-				   (assume non-link-local means routable) */
-				if ( ! linklocal ) {
-					netdev = miniroute->netdev;
-					ip6hdr->src = miniroute->address;
-					break;
-				}
+				/* Assume we can TX on this interface, even if
+				 * it is link-local. For multicast this should
+				 * not be too much of a problem. */
+				netdev = miniroute->netdev;
+				ip6hdr->src = miniroute->address;
+				break;
 			}
 		}
 		
@@ -324,7 +325,7 @@ int ipv6_tx ( struct io_buffer *iobuf,
 	}
 	/* No network interface identified */
 	if ( ( ! netdev ) ) {
-		DBG ( "No route to host %s\n", inet6_ntoa ( ip6hdr->dest ) );
+		DBG ( "No route to host %s\n", inet6_ntoa ( dest->sin6_addr ) );
 		rc = -ENETUNREACH;
 		goto err;
 	} else if ( ! IP6_EQUAL ( gateway, ip6_none ) ) {
@@ -667,7 +668,7 @@ struct setting prefix_setting __setting = {
 	.name = "prefix",
 	.description = "IPv6 address prefix length",
 	.tag = 0,
-	.type = &setting_type_int16,
+	.type = &setting_type_int32,
 };
 
 /** Default IPv6 gateway setting */
@@ -703,24 +704,24 @@ static int ipv6_create_routes ( void ) {
 		fetch_int_setting ( settings, &prefix_setting, &prefix );
 	
 		/* Sanity check! */
-		if ( ( prefix == 0 ) || ( prefix > 128 ) ) {
-			DBG ( "dhcp6: attempt to apply settings without a valid prefix, ignoring\n" );
-			return -EINVAL;
+		if ( ( prefix <= 0 ) || ( prefix > 128 ) ) {
+			DBG ( "ipv6: attempt to apply settings without a valid prefix, ignoring\n" );
+			continue; /* Simply ignore this setting. */
 		}
 	
 		/* Remove any existing routes for this address. */
 		list_for_each_entry_safe ( miniroute, tmp, &miniroutes, list ) {
-			if ( ipv6_match_prefix ( &address,
+			if ( ! ipv6_match_prefix ( &address,
 						 &miniroute->prefix,
 						 prefix ) ) {
-				DBG ( "dhcp6: existing route for a configured setting, deleting\n" );
+				DBG ( "ipv6: existing route for a configured setting, deleting\n" );
 				del_ipv6_miniroute ( miniroute );
 			}
 		}
 		
 		/* Configure route */
 		rc = add_ipv6_address ( netdev, address, prefix,
-					       address, gateway );
+					address, gateway );
 		if ( ! rc )
 			return rc;
 	}
