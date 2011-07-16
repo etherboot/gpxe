@@ -44,6 +44,8 @@ struct pending_rsolicit {
 	struct job_interface job;
 	/** Reference counter */
 	struct refcnt refcnt;
+	/** Metadata to fill when we receive an advertisement. */
+	struct rsolicit_info *meta;
 };
 
 /** Number of entries in the neighbour cache table */
@@ -165,6 +167,7 @@ add_solicit_entry ( struct net_device *netdev, int state ) {
 	entry->netdev = netdev;
 	entry->state = state;
 	entry->code = RSOLICIT_CODE_NONE;
+	entry->meta = NULL;
 	
 	return entry;
 }
@@ -228,12 +231,16 @@ int ndp_resolve ( struct net_device *netdev, struct in6_addr *dest,
  *
  * @v netdev	Network device
  * @v src	Source address
+ * @v meta	(optional) Pointer to struct to fill with information
+ *		when an advertisement arrives.
  * @v dest	Destination address
  *
  * This function prepares a neighbour solicitation packet and sends it to the
  * network layer.
  */
-int ndp_send_rsolicit ( struct net_device *netdev, struct job_interface *job ) {
+int ndp_send_rsolicit ( struct net_device *netdev,
+			struct job_interface *job,
+			struct rsolicit_info *meta ) {
 	union {
 		struct sockaddr_in6 sin6;
 		struct sockaddr_tcpip st;
@@ -264,6 +271,7 @@ int ndp_send_rsolicit ( struct net_device *netdev, struct job_interface *job ) {
 	
 	/* Add an entry for this solicitation. */
 	entry = add_solicit_entry ( netdev, RSOLICIT_STATE_ALMOST );
+	entry->meta = meta;
 	
 	/* Set up a job for the solicit. */
 	job_init ( &entry->job, &rsolicit_job_operations, &entry->refcnt );
@@ -301,10 +309,11 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 	struct router_advert *radvert = iobuf->data;
 	struct ndp_option *options = iobuf->data + sizeof(struct router_advert);
 	struct in6_addr router_addr = ( ( struct sockaddr_in6 * ) st_src )->sin6_addr;
-	struct in6_addr host_addr;
+	struct in6_addr host_addr, prefix;
 	int rc = -ENOENT;
 	uint8_t prefix_len = 0;
 	size_t offset = sizeof ( struct router_advert ), ll_size;
+	int can_autoconf = 0; /* Can we autoconfigure from the prefix? */
 	
 	/* Verify that there's a pending solicit */
 	struct pending_rsolicit *pending = solicit_find_entry ( netdev );
@@ -346,7 +355,8 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 			}
 
 			/* Copy the prefix first and then add the EUI-64 */
-			memcpy( &host_addr.s6_addr, opt->prefix, prefix_len / 8 );
+			memcpy ( &prefix.s6_addr, opt->prefix, prefix_len / 8 );
+			memcpy ( &host_addr.s6_addr, &prefix.s6_addr, prefix_len / 8 );
 
 			/* Create an IPv6 address for this station based on the prefix. */
 			ll_size = netdev->ll_protocol->ll_addr_len;
@@ -355,6 +365,13 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 			} else {
 				ipv6_generate_eui64 ( host_addr.s6_addr + 8, netdev->ll_addr );
 			}
+			
+			/* Get flags. */
+			can_autoconf = opt->flags_rsvd & ( 1 << 6 );
+			if ( ! can_autoconf )
+				DBG ( "ndp: got a prefix, but can't use it for SLAAC\n" );
+			else
+				DBG ( "ndp: can use prefix for SLAAC\n" );
 
 			rc = 0;
 			}
@@ -385,17 +402,26 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 		
 		return 0;
 	}
+	
+	/* Fill in information if we need to. */
+	if ( pending->meta != NULL ) {
+		DBG ( "ndp: filling meta information\n" );
+		pending->meta->router = router_addr;
+		pending->meta->prefix = prefix;
+		pending->meta->prefix_length = prefix_len;
+		pending->meta->no_address = ! can_autoconf;
+	}
 
 	/* Configure a route based on this router if none exists. */
-	if ( net_protocol->check ( netdev, &host_addr ) ) {
+	if ( can_autoconf && net_protocol->check ( netdev, &host_addr ) ) {
 		DBG ( "ndp: autoconfigured %s/%d via a router advertisement\n", inet6_ntoa( host_addr ), prefix_len);
 
-		add_ipv6_address ( netdev, host_addr, prefix_len, host_addr, router_addr );
-		
-		job_done ( &pending->job, pending->code );
-		
-		pending->state = RSOLICIT_STATE_INVALID;
+		add_ipv6_address ( netdev, prefix, prefix_len, host_addr, router_addr );
 	}
+	
+	/* Completed without error. */
+	job_done ( &pending->job, pending->code );
+	pending->state = RSOLICIT_STATE_INVALID;
 
 	return 0;
 }

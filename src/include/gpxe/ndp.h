@@ -35,6 +35,13 @@ struct job_interface;
 #define NDP_OPTION_REDIRECT         4
 #define NDP_OPTION_MTU              5
 
+struct rsolicit_info {
+	struct in6_addr router;
+	struct in6_addr prefix;
+	int prefix_length;
+	int no_address; /* No address assignment takes place via this adv. */
+};
+
 struct neighbour_solicit {
 	uint8_t type;
 	uint8_t code;
@@ -100,7 +107,9 @@ struct prefix_option
 int ndp_resolve ( struct net_device *netdev, struct in6_addr *src,
 		  struct in6_addr *dest, void *dest_ll_addr );
 
-int ndp_send_rsolicit ( struct net_device *netdev, struct job_interface *job );
+int ndp_send_rsolicit ( struct net_device *netdev,
+			struct job_interface *job,
+			struct rsolicit_info *meta );
 
 int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src,
 			  struct sockaddr_tcpip *st_dest, struct net_device *netdev,

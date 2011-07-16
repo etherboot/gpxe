@@ -34,11 +34,13 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #include <gpxe/xfer.h>
 #include <gpxe/open.h>
 #include <gpxe/job.h>
+#include <gpxe/monojob.h>
 #include <gpxe/netdevice.h>
 #include <gpxe/features.h>
 #include <gpxe/retry.h>
 #include <gpxe/timer.h>
 #include <gpxe/settings.h>
+#include <gpxe/ndp.h>
 #include <gpxe/dhcp6.h>
 
 /* Get an option encapsulated inside another option. */
@@ -100,6 +102,9 @@ struct dhcp6_session {
 	
 	/** Settings to apply as a result of a DHCPv6 session. */
 	struct settings *settings;
+	
+	/** Information about the router to use for address assignment. */
+	struct rsolicit_info router;
 };
 
 static struct dhcp6_session_state dhcp6_solicit;
@@ -353,20 +358,30 @@ int dhcp6_handle_option ( struct dhcp6_session *dhcp,
 			DBG ( "dhcp6: assigned address is %s\n", inet6_ntoa ( addr->addr ) );
 			
 			if ( completed ) {
-				/* Store the completed IPv6 address. */
-				store_setting ( parent,
-						&ip6_setting,
-						&addr->addr,
-						sizeof ( struct in6_addr ) );
-				
-				/* Add a fully-routable version now. */
-				/* TODO: set address properly. */
-				DBG ( "dhcp6: fixme, need to assign address properly\n" );
-				add_ipv6_address ( dhcp->netdev,
-						   addr->addr,
-						   128,
-						   addr->addr,
-						   addr->addr );
+				if ( dhcp->router.no_address ) {
+					/* Store the completed IPv6 address. */
+					store_setting ( parent,
+							&ip6_setting,
+							&addr->addr,
+							sizeof ( struct in6_addr ) );
+					store_setting ( parent,
+							&gateway6_setting,
+							&dhcp->router,
+							sizeof ( struct in6_addr ) );
+					store_setting ( parent,
+							&prefix_setting,
+							&dhcp->router.prefix_length,
+							sizeof ( dhcp->router.prefix_length ) );
+					
+					/* Add a fully-routable version now. */
+					add_ipv6_address ( dhcp->netdev,
+							   dhcp->router.prefix,
+							   dhcp->router.prefix_length,
+							   addr->addr,
+							   dhcp->router.router );
+				} else {
+					DBG ( "dhcp6: not adding an address as SLAAC has done that\n" );
+				}
 			} else {
 				dhcp->offer = addr->addr;
 			}
@@ -391,6 +406,8 @@ int dhcp6_handle_option ( struct dhcp6_session *dhcp,
 			break;
 		case DHCP6_OPT_DNS_DOMAINS:
 			DBG ( "dhcp6: DNS search domains option\n" );
+			
+			/* TODO: set DNS search domain, needs parsing though. */
 			break;
 		case DHCP6_OPT_SERVERID:
 			/* Verify the DUID if we already store one. */
@@ -404,8 +421,7 @@ int dhcp6_handle_option ( struct dhcp6_session *dhcp,
 					DBG ( "dhcp6: server DUID is valid\n" );
 				}
 			} else {
-					/* Grab in the server DUID for this session. */
-				/* TODO: check for sane length */
+				/* Grab in the server DUID for this session. */
 				dhcp->server_duid = malloc ( datalen );
 				dhcp->server_duid_len = datalen;
 				memcpy ( dhcp->server_duid, iobuf->data, datalen );
@@ -745,6 +761,15 @@ int start_dhcp6 ( struct job_interface *job, struct net_device *netdev, int only
 	dhcp = zalloc ( sizeof ( *dhcp ) );
 	if ( ! dhcp )
 		return -ENOMEM;
+	
+	
+	/* Get information about routers on this network first. */
+	rc = ndp_send_rsolicit ( netdev, &monojob, &dhcp->router );
+	if ( rc != 0 )
+		DBG ( "dhcp6: can't find a router on the network, continuing\n" );
+	else
+		monojob_wait ( "" );
+	
 	ref_init ( &dhcp->refcnt, dhcp6_free );
 	job_init ( &dhcp->job, &dhcp6_job_operations, &dhcp->refcnt );
 	xfer_init ( &dhcp->xfer, &dhcp6_xfer_operations, &dhcp->refcnt );

@@ -76,7 +76,7 @@ int ip6_autoconf ( struct net_device *netdev ) {
 	add_ipv6_address ( netdev, ip6addr, 64, ip6addr, ip6zero );
 	
 	/* Solicit routers on the network. */
-	if ( ( rc = ndp_send_rsolicit ( netdev, &monojob ) ) == 0 ) {
+	if ( ( rc = ndp_send_rsolicit ( netdev, &monojob, NULL ) ) == 0 ) {
 		rc = monojob_wait ( "" );
 	}
 	
