@@ -14,6 +14,7 @@
 #include <gpxe/iobuf.h>
 #include <gpxe/netdevice.h>
 #include <gpxe/if_ether.h>
+#include <gpxe/dhcp6.h>
 
 struct net_protocol ipv6_protocol;
 
@@ -644,3 +645,94 @@ struct icmp6_net_protocol ipv6_icmp6_protocol __icmp6_net_protocol = {
 	.check = ipv6_check,
 };
 
+
+
+/******************************************************************************
+ *
+ * Settings
+ *
+ ******************************************************************************
+ */
+
+/** IPv6 address setting */
+struct setting ip6_setting __setting = {
+	.name = "ip6",
+	.description = "IPv6 address",
+	.tag = DHCP6_OPT_IAADDR,
+	.type = &setting_type_ipv6,
+};
+
+/** IPv6 prefix setting */
+struct setting prefix_setting __setting = {
+	.name = "prefix",
+	.description = "IPv6 address prefix length",
+	.tag = 0,
+	.type = &setting_type_int16,
+};
+
+/** Default IPv6 gateway setting */
+struct setting gateway6_setting __setting = {
+	.name = "gateway6",
+	.description = "IPv6 Default gateway",
+	.tag = 0,
+	.type = &setting_type_ipv4,
+};
+
+/**
+ * Create IPv6 routes based on configured settings.
+ *
+ * @ret rc		Return status code
+ */
+static int ipv6_create_routes ( void ) {
+	struct ipv6_miniroute *miniroute;
+	struct ipv6_miniroute *tmp;
+	struct net_device *netdev;
+	struct settings *settings;
+	struct in6_addr address;
+	struct in6_addr gateway;
+	long prefix = 0;
+	int rc = 0;
+	
+	/* Create a route for each configured network device */
+	for_each_netdev ( netdev ) {
+		settings = netdev_settings ( netdev );
+	
+		/* Read the settings first. We may need to clear routes. */
+		fetch_ipv6_setting ( settings, &ip6_setting, &address );
+		fetch_ipv6_setting ( settings, &gateway6_setting, &gateway );
+		fetch_int_setting ( settings, &prefix_setting, &prefix );
+	
+		/* Sanity check! */
+		if ( ( prefix == 0 ) || ( prefix > 128 ) ) {
+			DBG ( "dhcp6: attempt to apply settings without a valid prefix, ignoring\n" );
+			return -EINVAL;
+		}
+	
+		/* Remove any existing routes for this address. */
+		list_for_each_entry_safe ( miniroute, tmp, &miniroutes, list ) {
+			if ( ipv6_match_prefix ( &address,
+						 &miniroute->prefix,
+						 prefix ) ) {
+				DBG ( "dhcp6: existing route for a configured setting, deleting\n" );
+				del_ipv6_miniroute ( miniroute );
+			}
+		}
+		
+		/* Configure route */
+		rc = add_ipv6_address ( netdev, address, prefix,
+					       address, gateway );
+		if ( ! rc )
+			return rc;
+	}
+	
+	return 0;
+}
+
+/** IPv6 settings applicator */
+struct settings_applicator ipv6_settings_applicator __settings_applicator = {
+	.apply = ipv6_create_routes,
+};
+
+/* Drag in ICMP6 and DHCP6 */
+REQUIRE_OBJECT ( icmpv6 );
+REQUIRE_OBJECT ( dhcp6 );

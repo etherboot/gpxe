@@ -662,6 +662,26 @@ int fetch_ipv4_setting ( struct settings *settings, struct setting *setting,
 }
 
 /**
+ * Fetch value of IPv6 address setting
+ *
+ * @v settings		Settings block, or NULL to search all blocks
+ * @v setting		Setting to fetch
+ * @v inp		IPv4 address to fill in
+ * @ret len		Length of setting, or negative error
+ */
+int fetch_ipv6_setting ( struct settings *settings, struct setting *setting,
+			 struct in6_addr *inp ) {
+	int len;
+
+	len = fetch_setting ( settings, setting, inp, sizeof ( *inp ) );
+	if ( len < 0 )
+		return len;
+	if ( len < ( int ) sizeof ( *inp ) )
+		return -ERANGE;
+	return len;
+}
+
+/**
  * Fetch value of signed integer setting
  *
  * @v settings		Settings block, or NULL to search all blocks
@@ -1144,6 +1164,49 @@ struct setting_type setting_type_ipv4 __setting_type = {
 	.name = "ipv4",
 	.storef = storef_ipv4,
 	.fetchf = fetchf_ipv4,
+};
+
+/**
+ * Parse and store value of IPv6 address setting
+ *
+ * @v settings		Settings block
+ * @v setting		Setting to store
+ * @v value		Formatted setting data
+ * @ret rc		Return status code
+ */
+static int storef_ipv6 ( struct settings *settings, struct setting *setting,
+			 const char *value ) {
+	struct in6_addr ipv6;
+
+	if ( inet6_aton ( value, &ipv6 ) == 0 )
+		return -EINVAL;
+	return store_setting ( settings, setting, &ipv6, sizeof ( ipv6 ) );
+}
+
+/**
+ * Fetch and format value of IPv4 address setting
+ *
+ * @v settings		Settings block, or NULL to search all blocks
+ * @v setting		Setting to fetch
+ * @v buf		Buffer to contain formatted value
+ * @v len		Length of buffer
+ * @ret len		Length of formatted value, or negative error
+ */
+static int fetchf_ipv6 ( struct settings *settings, struct setting *setting,
+			 char *buf, size_t len ) {
+	struct in6_addr ipv6;
+	int raw_len;
+
+	if ( ( raw_len = fetch_ipv6_setting ( settings, setting, &ipv6 ) ) < 0)
+		return raw_len;
+	return snprintf ( buf, len, "%s", inet6_ntoa ( ipv6 ) );
+}
+
+/** An IPv6 address setting type */
+struct setting_type setting_type_ipv6 __setting_type = {
+	.name = "ipv6",
+	.storef = storef_ipv6,
+	.fetchf = fetchf_ipv6,
 };
 
 /**

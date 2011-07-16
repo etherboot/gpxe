@@ -588,6 +588,14 @@ struct setting dns_setting __setting = {
 	.type = &setting_type_ipv4,
 };
 
+/** IPv6 DNS server setting */
+struct setting dns6_setting __setting = {
+	.name = "dns6",
+	.description = "IPv6 DNS server",
+	.tag = 0,
+	.type = &setting_type_ipv6,
+};
+
 /** Domain name setting */
 struct setting domain_setting __setting = {
 	.name = "domain",
@@ -604,10 +612,18 @@ struct setting domain_setting __setting = {
 static int apply_dns_settings ( void ) {
 	struct sockaddr_in *sin_nameserver =
 		( struct sockaddr_in * ) &nameserver;
+	struct sockaddr_in6 *sin6_nameserver =
+		( struct sockaddr_in6 * ) &nameserver;
 	int len;
 
-	if ( ( len = fetch_ipv4_setting ( NULL, &dns_setting,
-					  &sin_nameserver->sin_addr ) ) >= 0 ){
+	/* Favor IPv6 nameservers if they are available. */
+	if ( ( len = fetch_ipv6_setting ( NULL, &dns6_setting,
+					  &sin6_nameserver->sin6_addr ) ) >= 0 ){
+		sin6_nameserver->sin_family = AF_INET6;
+		DBG ( "DNS using IPv6 nameserver %s\n",
+		      inet6_ntoa ( sin6_nameserver->sin6_addr ) );
+	} else if ( ( len = fetch_ipv4_setting ( NULL, &dns_setting,
+						 &sin_nameserver->sin_addr ) ) >= 0 ){
 		sin_nameserver->sin_family = AF_INET;
 		DBG ( "DNS using nameserver %s\n",
 		      inet_ntoa ( sin_nameserver->sin_addr ) );

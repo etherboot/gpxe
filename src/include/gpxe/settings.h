@@ -16,6 +16,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 
 struct settings;
 struct in_addr;
+struct in6_addr;
 union uuid;
 
 /** A setting */
@@ -195,6 +196,8 @@ extern int fetch_string_setting_copy ( struct settings *settings,
 				       char **data );
 extern int fetch_ipv4_setting ( struct settings *settings,
 				struct setting *setting, struct in_addr *inp );
+extern int fetch_ipv6_setting ( struct settings *settings,
+				struct setting *setting, struct in6_addr *inp );
 extern int fetch_int_setting ( struct settings *settings,
 			       struct setting *setting, long *value );
 extern int fetch_uint_setting ( struct settings *settings,
@@ -219,6 +222,7 @@ extern int fetchf_named_setting ( const char *name, char *buf, size_t len );
 
 extern struct setting_type setting_type_string __setting_type;
 extern struct setting_type setting_type_ipv4 __setting_type;
+extern struct setting_type setting_type_ipv6 __setting_type;
 extern struct setting_type setting_type_int8 __setting_type;
 extern struct setting_type setting_type_int16 __setting_type;
 extern struct setting_type setting_type_int32 __setting_type;
@@ -229,9 +233,13 @@ extern struct setting_type setting_type_hex __setting_type;
 extern struct setting_type setting_type_uuid __setting_type;
 
 extern struct setting ip_setting __setting;
+extern struct setting ip6_setting __setting; /* Pre-defined IPv6 address */
 extern struct setting netmask_setting __setting;
+extern struct setting prefix_setting __setting; /* IPv6 address prefix */
 extern struct setting gateway_setting __setting;
+extern struct setting gateway6_setting __setting; /* IPv6 gateway */
 extern struct setting dns_setting __setting;
+extern struct setting dns6_setting __setting;
 extern struct setting domain_setting __setting;
 extern struct setting hostname_setting __setting;
 extern struct setting filename_setting __setting;
