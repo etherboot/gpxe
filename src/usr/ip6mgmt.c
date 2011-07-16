@@ -70,8 +70,10 @@ int ip6_autoconf ( struct net_device *netdev ) {
 	
 	DBG( "ipv6 autoconfig address is %s\n", inet6_ntoa(ip6addr) );
 	
-	/* Add as a route. */
-	add_ipv6_address ( netdev, ip6addr, 10, ip6addr, ip6zero );
+	/* Add as a route. It turns out Linux actually uses /64 for these, even
+	 * though they are technically a /10. It does make routing easier, as
+	 * /10 straddles a byte boundary. */
+	add_ipv6_address ( netdev, ip6addr, 64, ip6addr, ip6zero );
 	
 	/* Solicit routers on the network. */
 	if ( ( rc = ndp_send_rsolicit ( netdev, &monojob ) ) == 0 ) {
