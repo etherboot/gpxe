@@ -40,6 +40,7 @@ int ip6_autoconf ( struct net_device *netdev ) {
 	struct in6_addr ip6addr, ip6zero;
 	size_t ll_size;
 	int rc;
+	int use_dhcp = 0, onlyinfo = 0;
 
 	/* Check we can open the interface first */
 	if ( ( rc = ifopen ( netdev ) ) != 0 )
@@ -82,23 +83,27 @@ int ip6_autoconf ( struct net_device *netdev ) {
 	
 	if ( rc < 0 ) {
 		DBG ( "ipv6: router solicitation failed\n" );
+		use_dhcp = 1;
+		onlyinfo = 0;
 	} else {
 		if ( rc & RSOLICIT_CODE_MANAGED ) {
 			DBG ( "ipv6: should use dhcp6 server\n" );
+			use_dhcp = 1;
 		} else if ( rc & RSOLICIT_CODE_OTHERCONF ) {
-			DBG ( "ipv6: some more info is available via dhcp6\n" );
+			DBG ( "ipv6: use dhcp6 server for DNS settings\n" );
+			use_dhcp = 1;
+			onlyinfo = 1;
 		} else {
 			DBG ( "ipv6: autoconfiguration complete\n" );
 		}
 	}
 	
-	DBG ( "ipv6: testing dhcp6 info-request\n" );
-	start_dhcp6 ( &monojob, netdev, 1 );
-	rc = monojob_wait ( "" );
-	
-	DBG ( "ipv6: testing dhcp6 full-request\n" );
-	start_dhcp6 ( &monojob, netdev, 0 );
-	rc = monojob_wait ( "" );
+	/* Attempt DHCPv6 now, for addresses (if we don't already have one) and
+	 * DNS configuration. */
+	if ( use_dhcp ) {
+		start_dhcp6 ( &monojob, netdev, onlyinfo );
+		rc = monojob_wait ( "" );
+	}
 	
 	return rc;
 }
