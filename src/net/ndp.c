@@ -9,6 +9,8 @@
 #include <gpxe/icmp6.h>
 #include <gpxe/ip6.h>
 #include <gpxe/netdevice.h>
+#include <gpxe/retry.h>
+#include <gpxe/timer.h>
 #include <gpxe/job.h>
 
 /** @file
@@ -46,6 +48,8 @@ struct pending_rsolicit {
 	struct refcnt refcnt;
 	/** Metadata to fill when we receive an advertisement. */
 	struct rsolicit_info *meta;
+	/** Timer for timeout handling. */
+	struct retry_timer timer;
 };
 
 /** Number of entries in the neighbour cache table */
@@ -76,6 +80,9 @@ static void rsolicit_job_kill ( struct job_interface *job ) {
 	entry->code = 0;
 	entry->state = RSOLICIT_STATE_INVALID;
 	
+	/* Stop retry timer */
+	stop_timer ( &entry->timer );
+	
 	/* Clean up. */
 	job_nullify ( &entry->job );
 	job_done ( &entry->job, -ECANCELED );
@@ -87,6 +94,19 @@ static struct job_interface_operations rsolicit_job_operations = {
 	.kill		= rsolicit_job_kill,
 	.progress	= ignore_job_progress,
 };
+
+/**
+ * Handle router solicitation timeout. 
+ * @v timer	Solicitation retry timer.
+ * @v fail	Failure indicator.
+ */
+static void rsolicit_timer_expired ( struct retry_timer *timer, int fail __unused ) {
+	struct pending_rsolicit *entry = 
+		container_of ( timer, struct pending_rsolicit, timer );
+	
+	/* Don't bother retrying. */
+	rsolicit_job_kill ( &entry->job );
+}
 
 /**
  * Find entry in the neighbour cache
@@ -275,7 +295,14 @@ int ndp_send_rsolicit ( struct net_device *netdev,
 	
 	/* Set up a job for the solicit. */
 	job_init ( &entry->job, &rsolicit_job_operations, &entry->refcnt );
+	timer_init ( &entry->timer, rsolicit_timer_expired );
 
+	/* Set up the retry timer. */
+	stop_timer ( &entry->timer );
+	entry->timer.min_timeout = 0;
+	entry->timer.max_timeout = 5;
+	start_timer ( &entry->timer );
+	
 	/* Send packet over IP6 */
 	rc = ipv6_tx ( iobuf, &icmp6_protocol, NULL, &st_dest.st,
 		       netdev, &solicit->csum );
@@ -321,6 +348,9 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 		DBG ( "ndp: unsolicited router advertisement, ignoring\n" );
 		return rc;
 	}
+	
+	/* Stop retry timer - we'll complete the job no matter what happens. */
+	stop_timer ( &pending->timer );
 
 	memset ( &host_addr, 0, sizeof ( host_addr ) );
 
