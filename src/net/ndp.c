@@ -268,19 +268,26 @@ int ndp_send_rsolicit ( struct net_device *netdev,
 	struct router_solicit *solicit;
 	struct io_buffer *iobuf = alloc_iob ( sizeof ( *solicit ) + MIN_IOB_LEN );
 	struct pending_rsolicit *entry;
+	struct ll_option *ll;
 	int rc = 0;
 	
 	iob_reserve ( iobuf, MAX_HDR_LEN );
 	solicit = iob_put ( iobuf, sizeof ( *solicit ) );
+	ll = iob_put ( iobuf, sizeof ( *ll ) );
 
 	/* Fill up the headers */
 	memset ( solicit, 0, sizeof ( *solicit ) );
 	solicit->type = ICMP6_ROUTER_SOLICIT;
 	solicit->code = 0;
 	
+	/* Add our link-local address. */
+	ll->type = NDP_OPTION_SOURCE_LL;
+	ll->length = ( netdev->ll_protocol->ll_addr_len + 2 ) / 8;
+	memcpy ( ll->address, netdev->ll_addr, ll->length );
+	
 	/* Partial checksum */
 	solicit->csum = 0;
-	solicit->csum = tcpip_chksum ( solicit, sizeof ( *solicit ) );
+	solicit->csum = tcpip_chksum ( iobuf->data, iob_len ( iobuf ) );
 
 	/* Solicited multicast address - FF02::2 (all routers on local network) */
 	memset(&st_dest.sin6, 0, sizeof(st_dest.sin6));
@@ -299,8 +306,7 @@ int ndp_send_rsolicit ( struct net_device *netdev,
 
 	/* Set up the retry timer. */
 	stop_timer ( &entry->timer );
-	entry->timer.min_timeout = 0;
-	entry->timer.max_timeout = 5;
+	entry->timer.max_timeout = entry->timer.min_timeout = TICKS_PER_SEC * 6;
 	start_timer ( &entry->timer );
 	
 	/* Send packet over IP6 */
@@ -353,13 +359,13 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 	stop_timer ( &pending->timer );
 
 	memset ( &host_addr, 0, sizeof ( host_addr ) );
-
+	
 	/* Router advertisement flags */
-	if ( ntohs ( radvert->hops_flags ) & RADVERT_MANAGED ) {
+	if ( radvert->rsvd_flags & RADVERT_MANAGED ) {
 		DBG ( "ndp: router advertisement suggests DHCPv6\n" );
 		pending->code |= RSOLICIT_CODE_MANAGED;
 	}
-	if ( ntohs ( radvert->hops_flags ) & RADVERT_OTHERCONF ) {
+	if ( radvert->rsvd_flags & RADVERT_OTHERCONF ) {
 		DBG ( "ndp: router advertisement suggests DHCPv6 for additional information\n" );
 		pending->code |= RSOLICIT_CODE_OTHERCONF;
 	}

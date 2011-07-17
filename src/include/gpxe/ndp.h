@@ -70,8 +70,9 @@ struct router_advert {
 	uint8_t type;
 	uint8_t code;
 	uint16_t csum;
+	uint8_t hop_limit;
+	uint8_t rsvd_flags;
 	uint16_t lifetime;
-	uint16_t hops_flags;
 	uint32_t reachable_time;
 	uint32_t retrans_time;
 };
@@ -101,8 +102,8 @@ struct prefix_option
 	uint8_t prefix[16];
 };
 
-#define RADVERT_MANAGED		0x100
-#define RADVERT_OTHERCONF	0x101
+#define RADVERT_MANAGED		( 1 << 7 )
+#define RADVERT_OTHERCONF	( 1 << 6 )
 
 int ndp_resolve ( struct net_device *netdev, struct in6_addr *src,
 		  struct in6_addr *dest, void *dest_ll_addr );
