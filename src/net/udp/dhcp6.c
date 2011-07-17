@@ -359,6 +359,11 @@ int dhcp6_handle_option ( struct dhcp6_session *dhcp,
 			
 			if ( completed ) {
 				if ( dhcp->router.no_address ) {
+					/* Handle "no router" */
+					if ( dhcp->router.prefix_length == 128 ) {
+						dhcp->router.prefix = addr->addr;
+					}
+					
 					/* Store the completed IPv6 address. */
 					store_setting ( parent,
 							&ip6_setting,
@@ -764,11 +769,21 @@ int start_dhcp6 ( struct job_interface *job, struct net_device *netdev, int only
 	
 	
 	/* Get information about routers on this network first. */
+	memset ( &dhcp->router, 0, sizeof ( dhcp->router ) );
 	rc = ndp_send_rsolicit ( netdev, &monojob, &dhcp->router );
-	if ( rc != 0 )
+	if ( rc != 0 ) {
+		/* Couldn't TX a solicit for some reason... */
+		DBG ( "dhcp6: couldn't TX a router solicit?\n" );
+	} else {
+		rc = monojob_wait ( "" );
+	}
+	
+	/* If no router advertisement, set some sane defaults. */
+	if ( rc != 0 ) {
 		DBG ( "dhcp6: can't find a router on the network, continuing\n" );
-	else
-		monojob_wait ( "" );
+		dhcp->router.prefix_length = 128;
+		dhcp->router.no_address = 1;
+	}
 	
 	ref_init ( &dhcp->refcnt, dhcp6_free );
 	job_init ( &dhcp->job, &dhcp6_job_operations, &dhcp->refcnt );
