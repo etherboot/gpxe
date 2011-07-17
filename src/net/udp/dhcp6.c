@@ -445,7 +445,7 @@ int dhcp6_handle_option ( struct dhcp6_session *dhcp,
 				}
 			} else {
 				DBG ( "dhcp6: no client DUID yet, assuming unsolicited DHCP6 packet\n" );
-				return -EINVAL;
+				rc = -EINVAL;
 			}
 			break;
 		default:
@@ -473,9 +473,9 @@ int dhcp6_parse_config ( struct dhcp6_session *dhcp,
 			 int completed ) {
 	struct dhcp6_opt_hdr *opt = iobuf->data;
 	int rc = 0;
-	size_t offset = 0, optlen = 0;
+	size_t optlen = 0;
 	
-	while ( 1 ) {
+	while ( iob_len ( iobuf ) ) {
 		/* Remove the option header to make getting data easier. */
 		optlen = ntohs ( opt->len );
 		iob_pull ( iobuf, sizeof ( *opt ) );
@@ -488,9 +488,6 @@ int dhcp6_parse_config ( struct dhcp6_session *dhcp,
 		}
 		
 		/* Grab the next option. */
-		offset += optlen;
-		if ( offset > iob_len ( iobuf ) )
-			break;
 		opt = iob_pull ( iobuf, optlen );
 	}
 	
@@ -534,7 +531,6 @@ int dhcp6_solicit_tx ( struct dhcp6_session *dhcp __unused,
 	ia_addr->pref_lifetime = htonl ( 3600 );
 	ia_addr->valid_lifetime = htonl ( 3600 );
 	ia_addr->addr = dhcp->local.sin6_addr;
-	/* memset ( &ia_addr->addr, 0, sizeof ( ia_addr->addr ) ); */
 	
 	return 0;
 }
@@ -779,7 +775,7 @@ int start_dhcp6 ( struct job_interface *job, struct net_device *netdev, int only
 	}
 	
 	/* If no router advertisement, set some sane defaults. */
-	if ( rc != 0 ) {
+	if ( rc < 0 ) {
 		DBG ( "dhcp6: can't find a router on the network, continuing\n" );
 		dhcp->router.prefix_length = 128;
 		dhcp->router.no_address = 1;
