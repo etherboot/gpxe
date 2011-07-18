@@ -40,6 +40,7 @@ struct rsolicit_info {
 	struct in6_addr prefix;
 	int prefix_length;
 	int no_address; /* No address assignment takes place via this adv. */
+	int flags; /* RSOLICIT_CODE_* flags. */
 };
 
 struct neighbour_solicit {

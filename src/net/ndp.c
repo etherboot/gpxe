@@ -451,6 +451,7 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 		pending->meta->prefix = prefix;
 		pending->meta->prefix_length = prefix_len;
 		pending->meta->no_address = ! can_autoconf;
+		pending->meta->flags = pending->code;
 	}
 
 	/* Configure a route based on this router if none exists. */
@@ -461,7 +462,7 @@ int ndp_process_radvert ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src
 	}
 
 	/* Completed without error. */
-	job_done ( &pending->job, pending->code );
+	job_done ( &pending->job, 0 );
 	pending->state = RSOLICIT_STATE_INVALID;
 
 	return 0;

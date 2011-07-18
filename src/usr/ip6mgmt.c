@@ -27,6 +27,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #include <gpxe/icmp6.h>
 #include <gpxe/monojob.h>
 #include <gpxe/process.h>
+#include <gpxe/ndp.h>
 #include <usr/ifmgmt.h>
 #include <usr/ip6mgmt.h>
 #include <gpxe/dhcp6.h>
@@ -69,7 +70,7 @@ int ip6_autoconf ( struct net_device *netdev ) {
 	/* TODO: send a few neighbour solicits on this address before we take
 	 * it (once NDP is implemented). */
 	
-	DBG( "ipv6 autoconfig address is %s\n", inet6_ntoa(ip6addr) );
+	DBG ( "ipv6 autoconfig address is %s\n", inet6_ntoa(ip6addr) );
 	
 	/* Add as a route. It turns out Linux actually uses /64 for these, even
 	 * though they are technically a /10. It does make routing easier, as
@@ -77,19 +78,20 @@ int ip6_autoconf ( struct net_device *netdev ) {
 	add_ipv6_address ( netdev, ip6addr, 64, ip6addr, ip6zero );
 	
 	/* Solicit routers on the network. */
-	if ( ( rc = ndp_send_rsolicit ( netdev, &monojob, NULL ) ) == 0 ) {
-		rc = monojob_wait ( "" );
+	struct rsolicit_info router;
+	if ( ( rc = ndp_send_rsolicit ( netdev, &monojob, &router ) ) == 0 ) {
+		rc = monojob_wait ( "finding routers and attempting stateless autoconfiguration" );
 	}
 	
-	if ( rc < 0 ) {
+	if ( rc != 0 ) {
 		DBG ( "ipv6: router solicitation failed\n" );
 		use_dhcp = 1;
 		onlyinfo = 0;
 	} else {
-		if ( rc & RSOLICIT_CODE_MANAGED ) {
+		if ( router.flags & RSOLICIT_CODE_MANAGED ) {
 			DBG ( "ipv6: should use dhcp6 server\n" );
 			use_dhcp = 1;
-		} else if ( rc & RSOLICIT_CODE_OTHERCONF ) {
+		} else if ( router.flags & RSOLICIT_CODE_OTHERCONF ) {
 			DBG ( "ipv6: use dhcp6 server for DNS settings\n" );
 			use_dhcp = 1;
 			onlyinfo = 1;
@@ -101,8 +103,8 @@ int ip6_autoconf ( struct net_device *netdev ) {
 	/* Attempt DHCPv6 now, for addresses (if we don't already have one) and
 	 * DNS configuration. */
 	if ( use_dhcp ) {
-		start_dhcp6 ( &monojob, netdev, onlyinfo );
-		rc = monojob_wait ( "" );
+		start_dhcp6 ( &monojob, netdev, onlyinfo, &router );
+		rc = monojob_wait ( "dhcp6" );
 	}
 	
 	return rc;

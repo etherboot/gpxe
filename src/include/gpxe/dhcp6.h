@@ -206,7 +206,8 @@ struct dhcp6_duid_ll {
 };
 
 /** Start a DHCP6 transaction. */
-int start_dhcp6 ( struct job_interface *job, struct net_device *netdev, int onlyinfo );
+int start_dhcp6 ( struct job_interface *job, struct net_device *netdev,
+		  int onlyinfo, struct rsolicit_info *router );
 
 #endif
 

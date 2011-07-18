@@ -748,6 +748,9 @@ static struct xfer_interface_operations dhcp6_xfer_operations = {
  * @v netdev		Network device
  * @v onlyinfo		Only get information from the DHCPv6 server, not an
  *			actual address.
+ * @v router		Router information, or NULL if none is available or
+ *			needed. If provided, DHCP6 won't perform a router
+ *			solicit automatically.
  * @ret rc		Return status code, or positive if cached
  *
  * On a return of 0, a background job has been started to perform the
@@ -755,7 +758,8 @@ static struct xfer_interface_operations dhcp6_xfer_operations = {
  * started; a positive return value indicates the success condition of
  * having fetched the appropriate data from cached information.
  */
-int start_dhcp6 ( struct job_interface *job, struct net_device *netdev, int onlyinfo ) {
+int start_dhcp6 ( struct job_interface *job, struct net_device *netdev,
+		  int onlyinfo, struct rsolicit_info *router ) {
 	struct dhcp6_session *dhcp;
 	int rc;
 	
@@ -763,22 +767,25 @@ int start_dhcp6 ( struct job_interface *job, struct net_device *netdev, int only
 	if ( ! dhcp )
 		return -ENOMEM;
 	
-	
-	/* Get information about routers on this network first. */
-	memset ( &dhcp->router, 0, sizeof ( dhcp->router ) );
-	rc = ndp_send_rsolicit ( netdev, &monojob, &dhcp->router );
-	if ( rc != 0 ) {
-		/* Couldn't TX a solicit for some reason... */
-		DBG ( "dhcp6: couldn't TX a router solicit?\n" );
+	if ( router != NULL ) {
+		dhcp->router = *router;
 	} else {
-		rc = monojob_wait ( "" );
-	}
+		/* Get information about routers on this network first. */
+		memset ( &dhcp->router, 0, sizeof ( dhcp->router ) );
+		rc = ndp_send_rsolicit ( netdev, &monojob, &dhcp->router );
+		if ( rc != 0 ) {
+			/* Couldn't TX a solicit for some reason... */
+			DBG ( "dhcp6: couldn't TX a router solicit?\n" );
+		} else {
+			rc = monojob_wait ( "dhcp6 is finding routers" );
+		}
 	
-	/* If no router advertisement, set some sane defaults. */
-	if ( rc < 0 ) {
-		DBG ( "dhcp6: can't find a router on the network, continuing\n" );
-		dhcp->router.prefix_length = 128;
-		dhcp->router.no_address = 1;
+		/* If no router advertisement, set some sane defaults. */
+		if ( rc != 0 ) {
+			DBG ( "dhcp6: can't find a router on the network, continuing\n" );
+			dhcp->router.prefix_length = 128;
+			dhcp->router.no_address = 1;
+		}
 	}
 	
 	ref_init ( &dhcp->refcnt, dhcp6_free );
