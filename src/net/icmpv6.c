@@ -143,7 +143,6 @@ int icmp6_handle_echo ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src,
 		      strerror ( rc ) );
 	}
 
-	free_iob(iobuf);
 	return rc;
 }
 
@@ -177,6 +176,7 @@ int icmp6_rx ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src,
 		      uint16_t pshdr_csum ) {
 	struct icmp6_header *icmp6hdr = iobuf->data;
 	struct icmp6_net_protocol *icmp6_net_protocol;
+	struct sockaddr_in6 *dest = ( struct sockaddr_in6 * ) st_dest;
 	size_t len = iob_len ( iobuf );
 	unsigned int csum;
 	int rc;
@@ -186,6 +186,22 @@ int icmp6_rx ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src,
 		DBG ( "Packet too short (%zd bytes)\n", iob_len ( iobuf ) );
 		free_iob ( iobuf );
 		return -EINVAL;
+	}
+	
+	/* Get the net protocol for this packet. */
+	icmp6_net_protocol = icmp6_find_protocol ( htons ( ETH_P_IPV6 ) );
+	if ( ! icmp6_net_protocol ) {
+		rc = 0;
+		goto done;
+	}
+	
+	/* Verify that we should even begin to process this packet.
+	 * It must be either unicast, and targeted to us, or multicast. */
+	if ( icmp6_net_protocol->check ( netdev, &dest->sin6_addr ) &&
+	     ( ! ( dest->sin6_addr.in6_u.u6_addr8[0] == 0xFF ) ) ) {
+		DBG ( "ICMPv6 packet is not targeted to us.\n" );
+		rc = -EINVAL;
+		goto done;
 	}
 
 	/* Verify checksum */
@@ -197,29 +213,26 @@ int icmp6_rx ( struct io_buffer *iobuf, struct sockaddr_tcpip *st_src,
 		rc = -EINVAL;
 		goto done;
 	}
-	
-	/* Get the net protocol for this packet. */
-	icmp6_net_protocol = icmp6_find_protocol ( htons ( ETH_P_IPV6 ) );
-	if ( ! icmp6_net_protocol ) {
-		rc = 0;
-		goto done;
-	}
 
 	DBG ( "ICMPv6: packet with type %d and code %x\n", icmp6hdr->type, icmp6hdr->code);
 
 	/* Process the ICMP header */
 	switch ( icmp6hdr->type ) {
 	case ICMP6_ROUTER_ADVERT:
-	    return ndp_process_radvert ( iobuf, st_src, st_dest, netdev, icmp6_net_protocol );
+		rc = ndp_process_radvert ( iobuf, st_src, st_dest, netdev, icmp6_net_protocol );
+		break;
 	case ICMP6_NSOLICIT:
-		return ndp_process_nsolicit ( iobuf, st_src, st_dest, netdev, icmp6_net_protocol );
+		rc = ndp_process_nsolicit ( iobuf, st_src, st_dest, netdev, icmp6_net_protocol );
+		break;
 	case ICMP6_NADVERT:
-		return ndp_process_nadvert ( iobuf, st_src, st_dest, icmp6_net_protocol );
+		rc = ndp_process_nadvert ( iobuf, st_src, st_dest, icmp6_net_protocol );
+		break;
 	case ICMP6_ECHO_REQUEST:
-		return icmp6_handle_echo ( iobuf, st_src, st_dest, icmp6_net_protocol );
+		rc = icmp6_handle_echo ( iobuf, st_src, st_dest, icmp6_net_protocol );
+		break;
+	default:
+		rc = -ENOSYS;
 	}
-
-	rc = -ENOSYS;
 
  done:
 	free_iob ( iobuf );
