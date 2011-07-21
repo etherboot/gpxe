@@ -14,13 +14,30 @@
 #include <gpxe/iobuf.h>
 #include <gpxe/netdevice.h>
 #include <gpxe/if_ether.h>
+#include <gpxe/retry.h>
+#include <gpxe/timer.h>
 #include <gpxe/dhcp6.h>
 
 struct net_protocol ipv6_protocol;
 
 #define is_linklocal( a ) ( ( (a).in6_u.u6_addr16[0] & htons ( 0xFE80 ) ) == htons ( 0xFE80 ) )
 
+#define is_ext_hdr( nxt_hdr ) ( \
+	( nxt_hdr == IP6_HOPBYHOP ) || \
+	( nxt_hdr == IP6_PAD ) || \
+	( nxt_hdr == IP6_PADN ) || \
+	( nxt_hdr == IP6_ROUTING ) || \
+	( nxt_hdr == IP6_FRAGMENT ) || \
+	( nxt_hdr == IP6_AUTHENTICATION ) || \
+	( nxt_hdr == IP6_DEST_OPTS ) || \
+	( nxt_hdr == IP6_ESP ) || \
+	( nxt_hdr == IP6_NO_HEADER ) )
+
 char * inet6_ntoa ( struct in6_addr in6 );
+
+static int ipv6_process_nxt_hdr ( struct io_buffer *iobuf, uint8_t nxt_hdr,
+		struct sockaddr_tcpip *src, struct sockaddr_tcpip *dest,
+		struct net_device *netdev, uint16_t phcsm );
 
 /* Unspecified IP6 address */
 static struct in6_addr ip6_none = {
@@ -47,6 +64,9 @@ struct ipv6_miniroute {
 
 /** List of IPv6 miniroutes */
 static LIST_HEAD ( miniroutes );
+
+/** List of fragment reassembly buffers */
+static LIST_HEAD ( frag_buffers );
 
 /**
  * Generate an EUI-64 from a given link-local address.
@@ -203,10 +223,10 @@ void del_ipv6_address ( struct net_device *netdev ) {
 }
 
 /**
- * Calculate TCPIP checksum
+ * Calculate TX checksum
  *
  * @v iobuf	I/O buffer
- * @v tcpip	TCP/IP protocol
+ * @v csum	Partial checksum.
  *
  * This function constructs the pseudo header and completes the checksum in the
  * upper layer header.
@@ -221,6 +241,34 @@ static uint16_t ipv6_tx_csum ( struct io_buffer *iobuf, uint16_t csum ) {
 	pshdr.dest = ip6hdr->dest;
 	pshdr.len = ip6hdr->payload_len;
 	pshdr.nxt_hdr = ip6hdr->nxt_hdr;
+
+	/* Update checksum value */
+	return tcpip_continue_chksum ( csum, &pshdr, sizeof ( pshdr ) );
+}
+
+/**
+ * Calculate TCPIP checksum with the given values
+ *
+ * @v csum	Partial checksum.
+ * @v next_hdr	Next header in the packet.
+ * @v length	Total data length, in host byte order.
+ * @v src	Source address of the packet.
+ * @v dst	Destination address of the packet.
+ *
+ * This function constructs the pseudo header and completes the checksum in the
+ * upper layer header. It is to be used where an IP6 header is not available, or
+ * fully valid, such as after fragment reassembly.
+ */
+static uint16_t ipv6_tx_csum_nohdr ( uint16_t csum, uint8_t next_hdr, uint16_t length,
+				     struct in6_addr *src, struct in6_addr *dst ) {
+	struct ipv6_pseudo_header pshdr;
+
+	/* Calculate pseudo header */
+	memset ( &pshdr, 0, sizeof ( pshdr ) );
+	pshdr.src = *src;
+	pshdr.dest = *dst;
+	pshdr.len = htons ( length );
+	pshdr.nxt_hdr = next_hdr;
 
 	/* Update checksum value */
 	return tcpip_continue_chksum ( csum, &pshdr, sizeof ( pshdr ) );
@@ -368,6 +416,131 @@ int ipv6_tx ( struct io_buffer *iobuf,
 }
 
 /**
+ * Fragment reassembly counter timeout
+ *
+ * @v timer	Retry timer
+ * @v over	If asserted, the timer is greater than @c MAX_TIMEOUT 
+ */
+static void ipv6_frag_expired ( struct retry_timer *timer __unused,
+				int over ) {
+	if ( over ) {
+		DBG ( "Fragment reassembly timeout" );
+		/* Free the fragment buffer */
+	}
+}
+
+/**
+ * Free fragment buffer
+ *
+ * @v fragbug	Fragment buffer
+ */
+static void free_fragbuf ( struct frag_buffer *fragbuf ) {
+	free ( fragbuf );
+}
+
+/**
+ * Get the "next header" field and free a fragment buffer for a given iobuf.
+ *
+ * @v iobuf	I/O buffer to reference.
+ */
+static int frag_next_hdr ( struct io_buffer *iobuf ) {
+	struct frag_buffer *fragbuf;
+	int rc = IP6_NO_HEADER;
+	
+	list_for_each_entry ( fragbuf, &frag_buffers, list ) {
+		if ( fragbuf->frag_iob == iobuf ) {
+			rc = fragbuf->next_hdr;
+			free_fragbuf ( fragbuf );
+		}
+	}
+	
+	return rc;
+}
+
+/**
+ * Fragment reassembler
+ *
+ * @v iobuf		I/O buffer, fragment of the datagram
+ * @ret frag_iob	Reassembled packet, or NULL
+ */
+static struct io_buffer * ipv6_reassemble ( struct io_buffer * iobuf,
+				struct sockaddr_tcpip *st_src ) {
+	struct ip6_frag_hdr *frag_hdr = iobuf->data;
+	struct frag_buffer *fragbuf;
+	
+	struct sockaddr_in6 *src = ( struct sockaddr_in6 * ) st_src;
+	
+	/* Lift the flags and offset out. */
+	uint16_t offset = ntohs ( frag_hdr->offset_flags ) & ~0x7;
+	uint16_t flags = ntohs ( frag_hdr->offset_flags );
+	
+	/**
+	 * Check if the fragment belongs to any fragment series
+	 */
+	list_for_each_entry ( fragbuf, &frag_buffers, list ) {
+		if ( fragbuf->ident == frag_hdr->ident &&
+		     IP6_EQUAL( fragbuf->src.s6_addr, src->sin6_addr ) ) {
+			/**
+			 * Check if the packet is the expected fragment
+			 * 
+			 * The offset of the new packet must be equal to the
+			 * length of the data accumulated so far (the length of
+			 * the reassembled I/O buffer
+			 */
+			if ( iob_len ( fragbuf->frag_iob ) == offset ) {
+				/**
+				 * Append the contents of the fragment to the
+				 * reassembled I/O buffer
+				 */
+				iob_pull ( iobuf, sizeof ( *frag_hdr ) );
+				memcpy ( iob_put ( fragbuf->frag_iob,
+							iob_len ( iobuf ) ),
+					 iobuf->data, iob_len ( iobuf ) );
+				free_iob ( iobuf );
+
+				/** Check if the fragment series is over */
+				if ( ! ( flags & IP6_MORE_FRAGMENTS ) ) {
+					iobuf = fragbuf->frag_iob;
+					return iobuf;
+				}
+
+			} else {
+				/* Discard the fragment series */
+				free_fragbuf ( fragbuf );
+				free_iob ( iobuf );
+			}
+			return NULL;
+		}
+	}
+	
+	/** Check if the fragment is the first in the fragment series */
+	if ( ( flags & IP6_MORE_FRAGMENTS ) && ( offset == 0 ) ) {
+	
+		/** Create a new fragment buffer */
+		fragbuf = ( struct frag_buffer* ) malloc ( sizeof( *fragbuf ) );
+		fragbuf->ident = frag_hdr->ident;
+		fragbuf->src = src->sin6_addr;
+		fragbuf->next_hdr = frag_hdr->next_hdr;
+
+		/* Set up the reassembly I/O buffer */
+		fragbuf->frag_iob = alloc_iob ( IP6_FRAG_IOB_SIZE );
+		iob_pull ( iobuf, sizeof ( *frag_hdr ) );
+		memcpy ( iob_put ( fragbuf->frag_iob, iob_len ( iobuf ) ),
+			 iobuf->data, iob_len ( iobuf ) );
+		free_iob ( iobuf );
+
+		/* Set the reassembly timer */
+		timer_init ( &fragbuf->frag_timer, ipv6_frag_expired );
+		start_timer_fixed ( &fragbuf->frag_timer, IP6_FRAG_TIMEOUT );
+
+		/* Add the fragment buffer to the list of fragment buffers */
+		list_add ( &fragbuf->list, &frag_buffers );
+	}
+	
+	return NULL;
+}
+
+/**
  * Process next IP6 header
  *
  * @v iobuf	I/O buffer
@@ -382,23 +555,123 @@ int ipv6_tx ( struct io_buffer *iobuf,
 static int ipv6_process_nxt_hdr ( struct io_buffer *iobuf, uint8_t nxt_hdr,
 		struct sockaddr_tcpip *src, struct sockaddr_tcpip *dest,
 		struct net_device *netdev, uint16_t phcsm ) {
+	struct io_buffer *reassembled;
+	struct sockaddr_in6 *src_in = ( struct sockaddr_in6 * ) src;
+	struct sockaddr_in6 *dest_in = ( struct sockaddr_in6 * ) dest;
+	
+	/* Special handling for fragments - to avoid having to recursively call
+	 * this function in order to handle the packet. */
+	if ( nxt_hdr == IP6_FRAGMENT ) {
+		reassembled = ipv6_reassemble ( iobuf, src );
+		if ( reassembled ) {
+			/* Reassembled, pass to upper layer. */
+			nxt_hdr = frag_next_hdr ( reassembled );
+			iobuf = reassembled;
+			if ( nxt_hdr == IP6_FRAGMENT ) {
+				DBG ( "ip6: recursive fragment, dropping\n" );
+				return -EINVAL;
+			}
+			
+			/* Update the checksum. */
+			phcsm = ipv6_tx_csum_nohdr ( TCPIP_EMPTY_CSUM,
+					nxt_hdr, iob_len ( reassembled ),
+					&src_in->sin6_addr, &dest_in->sin6_addr );
+		} else {
+			return 0;
+		}
+	}
+	
 	switch ( nxt_hdr ) {
-	case IP6_HOPBYHOP:
-	case IP6_ROUTING:
-	case IP6_FRAGMENT:
+	case IP6_PAD:
+	case IP6_PADN:
+		return 0; /* Padding options. */
+	
 	case IP6_AUTHENTICATION:
-	case IP6_DEST_OPTS:
+		/* Handle authentication. */
 	case IP6_ESP:
+		/* Handle an encapsulated security payload. */
 		DBG ( "Function not implemented for header %d\n", nxt_hdr );
 		return -ENOSYS;
-	case IP6_ICMP6:
-		return icmp6_rx ( iobuf, src, dest, netdev, phcsm );
+	
+	/* Can ignore these. */
+	case IP6_HOPBYHOP:
+	case IP6_ROUTING:
+	case IP6_DEST_OPTS:
+		DBG ( "ip6: ignoring header %d\n", nxt_hdr );
+		break;
 	case IP6_NO_HEADER:
 		DBG ( "No next header\n" );
 		return 0;
+	case IP6_ICMP6:
+		return icmp6_rx ( iobuf, src, dest, netdev, phcsm );
 	}
 	/* Next header is not a IPv6 extension header */
 	return tcpip_rx ( iobuf, nxt_hdr, src, dest, phcsm );
+}
+
+/**
+ * Iterate over IP6 headers, processing each one.
+ *
+ * @v iobuf	I/O buffer
+ * @v src	Source socket address
+ * @v dest	Destination socket address
+ * @v netdev	Net device the packet arrived on
+ * @v phcsm Partial checksum over the IPv6 psuedo-header.
+ */
+static int ipv6_process_headers ( struct io_buffer *iobuf, uint8_t nxt_hdr,
+		struct sockaddr_tcpip *src, struct sockaddr_tcpip *dest,
+		struct net_device *netdev, uint16_t phcsm ) {
+	struct ip6_opt_hdr *opt = iobuf->data;
+	int flags, rc = 0;
+	
+	/* Handle packets without options. */
+	if ( ! is_ext_hdr ( nxt_hdr ) ) {
+		return ipv6_process_nxt_hdr ( iobuf, nxt_hdr, src, dest,
+					      netdev, phcsm );
+	}
+	
+	/* Hop by hop header has a special indicator in nxt_hdr, that matches
+	 * PAD and PADn options. So we special-case it. */
+	if ( nxt_hdr == IP6_HOPBYHOP_FIRST ) {
+		nxt_hdr = IP6_HOPBYHOP;
+	}
+	
+	/* Iterate over the option list. */
+	while ( iob_len ( iobuf ) ) {
+		flags = nxt_hdr >> 6;
+		
+		DBG ( "about to process header %x\n", nxt_hdr );
+		
+		rc = ipv6_process_nxt_hdr ( iobuf, nxt_hdr,
+					    src, dest, netdev, phcsm );
+		if ( rc == -EINVAL ) { /* Invalid packet/header? */
+			return rc;
+		}
+		
+		/* Processing completes after a fragment is received. */
+		if ( nxt_hdr == IP6_FRAGMENT ) {
+			DBG ( "handled a fragment, breaking\n" );
+			break;
+		} else if ( ! is_ext_hdr ( nxt_hdr ) ) {
+			DBG ( "no more extension headers, iob probably invalid!\n" );
+			break;
+		}
+		
+		if ( rc != 0 ) { /* Ignore all other errors. */
+			DBG ( "ip6: unsupported extension header encountered, ignoring\n" );
+			rc = 0;
+		}
+	
+		nxt_hdr = opt->type;
+		opt = iob_pull ( iobuf, opt->len );
+		
+		/* Stop processing if there are no more headers. */
+		if ( nxt_hdr == IP6_NO_HEADER ) {
+			break;
+		}
+	}
+	
+	return rc;
 }
 
 /**
@@ -419,19 +692,22 @@ static int ipv6_rx ( struct io_buffer *iobuf,
 		struct sockaddr_tcpip st;
 	} src, dest;
 	uint16_t phcsm = 0;
+	int rc = 0;
 
 	/* Sanity check */
 	if ( iob_len ( iobuf ) < sizeof ( *ip6hdr ) ) {
 		DBG ( "Packet too short (%zd bytes)\n", iob_len ( iobuf ) );
+		rc = -EINVAL;
 		goto drop;
 	}
 
 	/* Print IP6 header for debugging */
-	/* ipv6_dump ( ip6hdr ); */
+	ipv6_dump ( ip6hdr );
 
 	/* Check header version */
 	if ( ( ntohl( ip6hdr->ver_traffic_class_flow_label ) & 0xf0000000 ) != 0x60000000 ) {
 		DBG ( "Invalid protocol version\n" );
+		rc = -EINVAL;
 		goto drop;
 	}
 
@@ -439,6 +715,7 @@ static int ipv6_rx ( struct io_buffer *iobuf,
 	if ( ntohs ( ip6hdr->payload_len ) > iob_len ( iobuf ) ) {
 		DBG ( "Inconsistent packet length (%d bytes)\n",
 			ip6hdr->payload_len );
+		rc = -EINVAL;
 		goto drop;
 	}
 
@@ -454,7 +731,7 @@ static int ipv6_rx ( struct io_buffer *iobuf,
 
 	/* Calculate the psuedo-header checksum before the IP6 header is
 	 * stripped away. */
-	phcsm = ipv6_tx_csum ( iobuf, 0 );
+	phcsm = ipv6_tx_csum ( iobuf, TCPIP_EMPTY_CSUM );
 
 	/* Strip header */
 	iob_unput ( iobuf, iob_len ( iobuf ) - ntohs ( ip6hdr->payload_len ) -
@@ -462,13 +739,13 @@ static int ipv6_rx ( struct io_buffer *iobuf,
 	iob_pull ( iobuf, sizeof ( *ip6hdr ) );
 
 	/* Send it to the transport layer */
-	return ipv6_process_nxt_hdr ( iobuf, ip6hdr->nxt_hdr, &src.st, &dest.st,
-				      netdev, phcsm );
+	return ipv6_process_headers ( iobuf, ip6hdr->nxt_hdr, &src.st,
+				      &dest.st, netdev, phcsm );
 
   drop:
 	DBG ( "IP6 packet dropped\n" );
 	free_iob ( iobuf );
-	return -1;
+	return rc;
 }
 
 /**
