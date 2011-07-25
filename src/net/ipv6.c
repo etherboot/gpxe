@@ -35,9 +35,7 @@ struct net_protocol ipv6_protocol;
 
 char * inet6_ntoa ( struct in6_addr in6 );
 
-static int ipv6_process_nxt_hdr ( struct io_buffer *iobuf, uint8_t nxt_hdr,
-		struct sockaddr_tcpip *src, struct sockaddr_tcpip *dest,
-		struct net_device *netdev, uint16_t phcsm );
+static int ipv6_check ( struct net_device *netdev, const void *net_addr );
 
 /* Unspecified IP6 address */
 static struct in6_addr ip6_none = {
@@ -701,6 +699,23 @@ static int ipv6_rx ( struct io_buffer *iobuf,
 		goto drop;
 	}
 
+	/* Construct socket address */
+	memset ( &src, 0, sizeof ( src ) );
+	src.sin6.sin_family = AF_INET6;
+	src.sin6.sin6_addr = ip6hdr->src;
+	memset ( &dest, 0, sizeof ( dest ) );
+	dest.sin6.sin_family = AF_INET6;
+	dest.sin6.sin6_addr = ip6hdr->dest;
+
+	/* Check destination - always allow multicast. */
+	if ( dest.sin6.sin6_addr.s6_addr[0] != 0xFF ) {
+		if ( ipv6_check ( netdev, &dest.sin6.sin6_addr ) ) {
+			DBG ( "IP6: packet not for us\n" );
+			rc = -EINVAL;
+			goto drop;
+		}
+	}
+
 	/* Print IP6 header for debugging */
 	ipv6_dump ( ip6hdr );
 
@@ -720,14 +735,6 @@ static int ipv6_rx ( struct io_buffer *iobuf,
 	}
 
 	/* Ignore the traffic class and flow control values */
-
-	/* Construct socket address */
-	memset ( &src, 0, sizeof ( src ) );
-	src.sin6.sin_family = AF_INET6;
-	src.sin6.sin6_addr = ip6hdr->src;
-	memset ( &dest, 0, sizeof ( dest ) );
-	dest.sin6.sin_family = AF_INET6;
-	dest.sin6.sin6_addr = ip6hdr->dest;
 
 	/* Calculate the psuedo-header checksum before the IP6 header is
 	 * stripped away. */
