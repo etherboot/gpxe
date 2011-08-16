@@ -40,7 +40,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
  */
 
 #define	NET_PROTO_IPV4		/* IPv4 protocol */
-#undef	NET_PROTO_IPV6		/* IPv6 protocol */
+#undef  NET_PROTO_IPV6		/* IPv6 protocol */
 
 /*
  * PXE support
@@ -120,8 +120,8 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #define LOGIN_CMD		/* Login command */
 #undef	TIME_CMD		/* Time commands */
 #undef	DIGEST_CMD		/* Image crypto digest commands */
-//#undef	PXE_CMD			/* PXE commands */
-#define IPV6_CMD		/* IPv6 commands */
+#define PXE_CMD			/* PXE commands */
+#undef	IPV6_CMD		/* IPv6 commands */
 
 /*
  * Error message tables to include
