@@ -105,7 +105,6 @@ $flag_table = array (
 	"HDR_NETWORK_PROTOCOL_OPTIONS"
 	=> array (
 	   "flag" => "HDR_NETWORK_PROTOCOL_OPTIONS",
-	   "hide_from_user" => "yes",  // Hide even the header
 	   "type" => "header",
 	   "label" => "Network Protocol Options"
 		),
