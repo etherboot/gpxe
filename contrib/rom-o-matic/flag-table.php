@@ -119,6 +119,14 @@ $flag_table = array (
 	   "cfgsec" => "general"
 	   ),
 
+	"NET_PROTO_IPV6"
+	=> array (
+	   "flag" => "NET_PROTO_IPV6",
+	   "type" => "on/off",
+	   "value" => "off",
+	   "cfgsec" => "general"
+	   ),
+
 	// End Network Protocol Options
 
 	// Begin Serial Port configuration
@@ -445,6 +453,22 @@ $flag_table = array (
 	"DIGEST_CMD"
 	=> array (
 	   "flag" => "DIGEST_CMD",
+	   "type" => "on/off",
+	   "value" => "off",
+	   "cfgsec" => "general"
+		),
+
+	"PXE_CMD"
+	=> array (
+	   "flag" => "PXE_CMD",
+	   "type" => "on/off",
+	   "value" => "on",
+	   "cfgsec" => "general"
+		),
+
+	"IPV6_CMD"
+	=> array (
+	   "flag" => "IPV6_CMD",
 	   "type" => "on/off",
 	   "value" => "off",
 	   "cfgsec" => "general"
