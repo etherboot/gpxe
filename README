@@ -44,6 +44,34 @@ should be populated with gPXE images and object files.
 To learn more about what to build and how to use gPXE, please visit our
 project website at http://etherboot.org/ , particularly the "howto" section.
 
+BUILDING gPXE IN 2020
+
+This workflow requires Virtualbox (I'm using version 6.1 at the time
+of this writing, but any version should do).
+
+There is a Vagrantfile in this repository that spawns a Virtualbox 32
+bits VM (Virtual Machine) running Ubuntu Precise (12.04). It also
+installs the packages required to build gPXE.
+
+Here's the workflow:
+* Spawn the Ubuntu Precise VM and ssh into it
+* Build gPXE
+* Quit and destroy the VM
+
+Which translates into:
+
+    $ vagrant up
+    $ vagrant ssh
+    $ cd /vagrant/src
+    $ NO_WERROR=1 make
+    $ exit
+    $ vagrant destroy
+
+The images are the located in the `src/bin` directory.
+
+    $ ls src/bin/gpxe.{dsk,usb,iso}
+    src/bin/gpxe.dsk  src/bin/gpxe.iso  src/bin/gpxe.usb
+
 CONTACTING US
 
 Pointers to our project mailing lists are on http://etherboot.org/
